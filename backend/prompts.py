@@ -30,7 +30,7 @@ AGENT_SYSTEM_PROMPT_TEMPLATE = Template(
 You are playing the role of $speaker_name$gender_qualifier having a spoken (voice-style) conversation with $partner_name$partner_gender_qualifier.
 
 Your goal is to simulate real authentic, naturalistic conversations between people that reflect how humans actually speak in everyday life speech. You should follow the instructions below,
-while generating exactly one next line of dialogue — only words $speaker_name would say aloud next.
+while generating next turn of dialogue — only words $speaker_name would say aloud next.
 
 
 Discussion topic:
@@ -69,7 +69,7 @@ Good example: I am not sure, but we can try.
 
 4. Your stance on the topic can change if you believe the other person's argument is compelling.
 
-5. The speaker should make at most two conversational moves. Conversational moves are:
+5. The speaker should make at most one conversational moves. Conversational moves are:
 - acknowledge briefly, OR
 - ask a question, OR
 - give one example, OR
@@ -144,7 +144,7 @@ A backchannel is a vocalization or short word/phrase that shows the speaker is e
 
 # Rules
 - You should place $max_backchannels backchannel(s) on this turn.
-- Each line below is one TTS unit: comma-clauses sewn together, ending at . ! ? sentence boundaries.
+- Each line below is one sentence unit: comma-clauses sewn together, ending at . ! ? sentence boundaries.
 - Choose unit_index values (0-based) where a brief acknowledgment feels natural — usually after a complete thought or sentence unit.
 - Backchannel text must be short (typically 1–3 words).
 
@@ -161,10 +161,10 @@ BACKCHANNEL_INSERT_USER = Template(
 Speaker (talking): $speaker_name
 Listener (may backchannel): $listener_name
 
-Number of TTS units: $segment_count
+Number of sentence units: $segment_count
 Backchannels inserted this turn: $max_backchannels
 
-TTS units (unit_index: text — comma-clauses sewn; . ! ? = sentence end):
+Sentence units:
 $indexed_segments
 """
 )
@@ -180,11 +180,35 @@ You insert natural spoken disfluencies into a speaker's segmented turn for $spea
 You must insert exactly $max_disfluencies disfluency/disfluencies. Each must use the assigned type from $requested_types. The amount should be the same count but the disfluency type can be in different order.
 
 # Disfluency types
-- filled_pause: brief fillers to inform listeners that the speaker needs a pause to collect his or her thoughts. Example words: um..., uh...
-- discourse_marker: act as transitions between different sections of conversation but does not contain any grammatical information. Example words: like, I mean, you know, so, well
-- elongation: draw out certain vowel sounds or syllables to express deep emotion, emphasize a point, manage the natural flow of speaking. Example words: soooo, reeeeally
-- self_repair: there is an original utterance but the speaker needs to correct it using an edited term. The edited term is self repair. Example usage: "Go from left to right, uh... no from right to left."
-- stumble: light repetition or false start woven into the word being spoken — not tagged or appended at the end. Example: "I-I don't know.", "the the point is", "w-we should go". Bad: tacking "the the" onto a finished sentence like "...was solid, the the".
+- filled_pause: filled pauses are brief fillers to inform listeners that the speaker needs a pause to collect his or her thoughts. Example words: um..., uh...
+- discourse_marker: discourse markers act as transitions between different sections of conversation but does not contain any grammatical information. Example words: like, I mean, you know, so, well
+- elongation: elongation is the drawing out of certain vowel sounds or syllables to express deep emotion, emphasize a point, manage the natural flow of speaking. Example words: soooo, reeeeally
+- self_repair: The speaker must say an incorrect phrase X, then use a correction marker, then replace X with a different phrase Y.
+  Required structure:
+  "X, [marker] Y [self-repair]"
+  where X and Y must refer to the same slot but have different meaning.
+  Valid markers: ", wait...", ", no...", ", I mean...", ", sorry, I mean...", ", actually...".
+  Do NOT use self_repair if there is no clear corrected replacement.
+  Do NOT use self_repair for hesitation only.
+  Do NOT use self_repair after words like "actually" unless something before it is explicitly replaced.
+
+  Examples of valid self_repair:
+    1. "Move the file to the left folder, wait... the right folder [self-repair]."
+    X = left folder
+    Y = right folder
+    This is self-repair because the speaker corrects one location to another.
+    2. "I think we should delete the post, no... hide it temporarily [self-repair]."
+    X = delete the post
+    Y = hide it temporarily
+    This is self-repair because the speaker replaces one action with a different action.
+
+Invalid examples — do NOT label these as self_repair:
+
+    1. "I mean, [self-repair] we need better reporting tools."
+    Invalid because there is no original phrase X before "I mean."
+    2. "Actually, [self-repair] people should be more careful online."
+    Invalid because "actually" is used as a discourse marker, not a correction.
+- stumble: stumble is alight repetition or false start woven into the word being spoken — not tagged or appended at the end. Example: "I-I don't know.", "the the point is", "w-we should go". Bad: tacking "the the" onto a finished sentence like "...was solid, the the".
 
 # Rules
 - Weave disfluencies into the segment text naturally; do not rewrite unrelasted content.

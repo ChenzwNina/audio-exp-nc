@@ -36,22 +36,23 @@ MAX_TURNS = int(os.getenv("CONVERSATION_MAX_TURNS", "12"))
 # Edit this string to change which model writes initial_view + personal_story via /generate-personas-from-topic.
 PERSONA_AUTHORING_MODEL = "gpt-4o"
 
-# Splits each gpt-4o reply into pause-separated lines for display (transcript context still uses raw text).
+# Splits each gpt-4o reply into pause-separated line's for display (transcript context still uses raw text).
 # UTTERANCE_SEGMENT_MODEL is used only when the LLM splitter below is re-enabled.
 UTTERANCE_SEGMENT_MODEL = "gpt-4o-mini"
 BACKCHANNEL_INSERT_MODEL = "gpt-4o"
-DISFLUENCY_INSERT_MODEL = "gpt-4o-mini"
+DISFLUENCY_INSERT_MODEL = "gpt-4o"
 EXPRESSION_TAG_MODEL = "gpt-4o-mini"
+# input_backchannels = 0 # Manually control the number of backchannels inserted
 DISFLUENCY_RATE_PER_WORD = float(os.getenv("DISFLUENCY_RATE_PER_WORD", "0.14"))
-DISFLUENCY_TIER_COMMON = 0.88
+DISFLUENCY_TIER_COMMON = 1
 DISFLUENCY_TYPE_WEIGHTS_COMMON: dict[str, float] = {
     "filled_pause": 0.45,
     "discourse_marker": 0.30,
-    "elongation": 0.25,
+    "elongation": 0.25
 }
 DISFLUENCY_TYPE_WEIGHTS_RARE: dict[str, float] = {
-    "self_repair": 0.70,
-    "stumble": 0.30,
+    "self_repair": 0.7,
+    "stumble": 0.3
 }
 VALID_DISFLUENCY_TYPES = frozenset(
     set(DISFLUENCY_TYPE_WEIGHTS_COMMON) | set(DISFLUENCY_TYPE_WEIGHTS_RARE)
@@ -119,6 +120,8 @@ def _merge_agent_identity(prev: dict[str, Any], *, initial_view: str, personal_s
         out["gender"] = prev["gender"]
     if "elevenlabs_voice_id" in prev:
         out["elevenlabs_voice_id"] = prev["elevenlabs_voice_id"]
+    if "elevenlabs_speaking_speed" in prev:
+        out["elevenlabs_speaking_speed"] = prev["elevenlabs_speaking_speed"]
     return out
 
 
@@ -257,6 +260,8 @@ def _choose_backchannels(
         return [], 0
 
     max_backchannels = random.randint(0, len(tts_units) // 2)
+
+    # max_backchannels = input_backchannels
     if max_backchannels == 0:
         return [], 0
 
@@ -743,11 +748,21 @@ def _tts_line_timing(line: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _synthesize_with_retry(*, text: str, voice_id: str, retries: int = 2) -> dict[str, Any]:
+def _synthesize_with_retry(
+    *,
+    text: str,
+    voice_id: str,
+    speed: float,
+    retries: int = 2,
+) -> dict[str, Any]:
     last_err: str | None = None
     for _ in range(max(1, retries)):
         try:
-            result = tts.synthesize_with_timestamps(text=text, voice_id=voice_id)
+            result = tts.synthesize_with_timestamps(
+                text=text,
+                voice_id=voice_id,
+                speed=speed,
+            )
             if result.get("audio_base64"):
                 return result
             last_err = "empty audio response"
@@ -776,6 +791,8 @@ def _synthesize_turn_audio(
 
     speaker_vid = tts.voice_id_for_agent(speaker)
     listener_vid = tts.voice_id_for_agent(listener)
+    speaker_speed = tts.speaking_speed_for_agent(speaker)
+    listener_speed = tts.speaking_speed_for_agent(listener)
     if not speaker_vid or not listener_vid:
         return [], [], None
 
@@ -809,12 +826,12 @@ def _synthesize_turn_audio(
                 )
             )
 
-    jobs: list[tuple[str, int, str, str, str]] = []
+    jobs: list[tuple[str, int, str, str, str, float]] = []
     for ui, unit in enumerate(tts_units):
         text = str(unit)
         if (("segment", ui) in results) or not _speakable_tts_text(text):
             continue
-        jobs.append(("segment", ui, text, str(speaker["name"]), speaker_vid))
+        jobs.append(("segment", ui, text, str(speaker["name"]), speaker_vid, speaker_speed))
     for ui in sorted(bc_by_unit.keys()):
         bc = bc_by_unit[ui]
         text = str(bc.get("text_for_tts") or bc["text"])
@@ -836,6 +853,7 @@ def _synthesize_turn_audio(
                 text,
                 str(bc.get("listener", listener["name"])),
                 listener_vid,
+                listener_speed,
             )
         )
 
@@ -843,13 +861,18 @@ def _synthesize_turn_audio(
     workers = min(6, max(1, len(jobs)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         future_map = {
-            pool.submit(_synthesize_with_retry, text=text, voice_id=voice_id): (
+            pool.submit(
+                _synthesize_with_retry,
+                text=text,
+                voice_id=voice_id,
+                speed=speed,
+            ): (
                 kind,
                 idx,
                 name,
                 text,
             )
-            for kind, idx, text, name, voice_id in jobs
+            for kind, idx, text, name, voice_id, speed in jobs
         }
         for fut in as_completed(future_map):
             kind, idx, name, text = future_map[fut]

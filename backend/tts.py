@@ -9,6 +9,9 @@ from typing import Any
 
 ELEVENLABS_MODEL = os.getenv("ELEVENLABS_MODEL", "eleven_v3")
 ELEVENLABS_OUTPUT_FORMAT = os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128")
+DEFAULT_ELEVENLABS_SPEAKING_SPEED = 1.2
+ELEVENLABS_SPEED_MIN = 0.7
+ELEVENLABS_SPEED_MAX = 1.2
 
 
 def _client():
@@ -45,7 +48,21 @@ def _duration_from_alignment(alignment: Any) -> float:
     return float(ends[-1])
 
 
-def synthesize_with_timestamps(*, text: str, voice_id: str) -> dict[str, Any]:
+def speaking_speed_for_agent(agent: dict[str, Any]) -> float:
+    raw = agent.get("elevenlabs_speaking_speed", DEFAULT_ELEVENLABS_SPEAKING_SPEED)
+    try:
+        speed = float(raw)
+    except (TypeError, ValueError):
+        speed = DEFAULT_ELEVENLABS_SPEAKING_SPEED
+    return max(ELEVENLABS_SPEED_MIN, min(ELEVENLABS_SPEED_MAX, speed))
+
+
+def synthesize_with_timestamps(
+    *,
+    text: str,
+    voice_id: str,
+    speed: float | None = None,
+) -> dict[str, Any]:
     """
     One full clip per call. Returns audio_base64, alignment, duration_s, api_ms.
     Raises on missing API key or HTTP errors.
@@ -55,12 +72,15 @@ def synthesize_with_timestamps(*, text: str, voice_id: str) -> dict[str, Any]:
         raise RuntimeError("ELEVENLABS_API_KEY is not set")
 
     t0 = time.perf_counter()
-    resp = client.text_to_speech.convert_with_timestamps(
-        voice_id=voice_id,
-        text=text,
-        model_id=ELEVENLABS_MODEL,
-        output_format=ELEVENLABS_OUTPUT_FORMAT,
-    )
+    request_kwargs: dict[str, Any] = {
+        "voice_id": voice_id,
+        "text": text,
+        "model_id": ELEVENLABS_MODEL,
+        "output_format": ELEVENLABS_OUTPUT_FORMAT,
+    }
+    if speed is not None:
+        request_kwargs["voice_settings"] = {"speed": speed}
+    resp = client.text_to_speech.convert_with_timestamps(**request_kwargs)
     api_ms = round((time.perf_counter() - t0) * 1000)
 
     alignment = getattr(resp, "alignment", None) or getattr(resp, "normalized_alignment", None)
