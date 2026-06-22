@@ -26,12 +26,12 @@ from fastapi.responses import FileResponse
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from backend import prompts, tts
+from backend import exp_control, prompts, tts
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
-MAX_TURNS = int(os.getenv("CONVERSATION_MAX_TURNS", "12"))
+MAX_TURNS = int(exp_control.conversation_max_turns)
 
 # Edit this string to change which model writes initial_view + personal_story via /generate-personas-from-topic.
 PERSONA_AUTHORING_MODEL = "gpt-4o"
@@ -43,20 +43,15 @@ BACKCHANNEL_INSERT_MODEL = "gpt-4o"
 DISFLUENCY_INSERT_MODEL = "gpt-4o"
 EXPRESSION_TAG_MODEL = "gpt-4o-mini"
 # input_backchannels = 0 # Manually control the number of backchannels inserted
-DISFLUENCY_RATE_PER_WORD = float(os.getenv("DISFLUENCY_RATE_PER_WORD", "0.14"))
-DISFLUENCY_TIER_COMMON = 1
-DISFLUENCY_TYPE_WEIGHTS_COMMON: dict[str, float] = {
-    "filled_pause": 0.45,
-    "discourse_marker": 0.30,
-    "elongation": 0.25
+DISFLUENCY_RATE_PER_WORD = float(os.getenv("DISFLUENCY_RATE_PER_WORD", "0.08"))
+DISFLUENCY_TYPE_WEIGHTS: dict[str, float] = {
+    "filled_pause": 0.36,
+    "discourse_marker": 0.28,
+    "prolongation": 0.17,
+    "self_repair": 0,
+    "repetition": 0.18,
 }
-DISFLUENCY_TYPE_WEIGHTS_RARE: dict[str, float] = {
-    "self_repair": 0.7,
-    "stumble": 0.3
-}
-VALID_DISFLUENCY_TYPES = frozenset(
-    set(DISFLUENCY_TYPE_WEIGHTS_COMMON) | set(DISFLUENCY_TYPE_WEIGHTS_RARE)
-)
+VALID_DISFLUENCY_TYPES = frozenset(DISFLUENCY_TYPE_WEIGHTS)
 
 app = FastAPI(title="two-agent-chat")
 app.add_middleware(
@@ -262,7 +257,7 @@ def _choose_backchannels(
     max_backchannels = random.randint(0, len(tts_units) // 2)
 
     # max_backchannels = input_backchannels
-    if max_backchannels == 0:
+    if max_backchannels == 0 or not exp_control.backchannel_speech:
         return [], 0
 
     try:
@@ -336,12 +331,8 @@ def _poisson_sample(lam: float) -> int:
 
 
 def _pick_disfluency_type() -> str:
-    if random.random() < DISFLUENCY_TIER_COMMON:
-        weights = DISFLUENCY_TYPE_WEIGHTS_COMMON
-    else:
-        weights = DISFLUENCY_TYPE_WEIGHTS_RARE
-    keys = list(weights.keys())
-    vals = list(weights.values())
+    items = [(k, w) for k, w in DISFLUENCY_TYPE_WEIGHTS.items() if w > 0]
+    keys, vals = zip(*items)
     return random.choices(keys, weights=vals, k=1)[0]
 
 
@@ -379,8 +370,10 @@ def _choose_disfluencies(
     segments: list[str],
 ) -> tuple[list[dict[str, Any]], list[str], int]:
     """Returns (disfluencies, segments_for_tts, disfluency_count)."""
-    if not segments:
-        return [], [], 0
+
+    # If exp control does not allow disfluency speech, don't insert disfluencies
+    if not exp_control.disfluency_speech or not segments:
+        return [], list(segments), 0
 
     disfluency_count = _sample_disfluency_count(segments)
     if disfluency_count == 0:
@@ -515,6 +508,9 @@ def _apply_expression_tags(
     """Tag TTS units for Eleven v3; split back to micro segments for display."""
     if not tts_units:
         return [], list(segments_for_tts), [dict(b) for b in backchannels], []
+
+    if not exp_control.audio_tag_speech:
+        return list(tts_units), list(segments_for_tts), [dict(b) for b in backchannels], []
 
     fallback_units = list(tts_units)
 
@@ -756,7 +752,8 @@ def _synthesize_with_retry(
     retries: int = 2,
 ) -> dict[str, Any]:
     last_err: str | None = None
-    for _ in range(max(1, retries)):
+    t0 = time.perf_counter()
+    for attempt in range(max(1, retries)):
         try:
             result = tts.synthesize_with_timestamps(
                 text=text,
@@ -768,10 +765,13 @@ def _synthesize_with_retry(
             last_err = "empty audio response"
         except Exception as exc:
             last_err = str(exc)
+    total_ms = _elapsed_ms(t0)
+    print(f"[TTS FAIL] text={text[:80]!r}... voice={voice_id} "
+          f"attempts={retries} elapsed={total_ms}ms error={last_err}")
     return {
         "audio_base64": "",
         "duration_s": 0.0,
-        "api_ms": 0,
+        "api_ms": total_ms,
         "alignment": None,
         "error": last_err or "synthesis failed",
     }
@@ -858,7 +858,7 @@ def _synthesize_turn_audio(
         )
 
     t0 = time.perf_counter()
-    workers = min(6, max(1, len(jobs)))
+    workers = min(3, max(1, len(jobs)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         future_map = {
             pool.submit(
@@ -1661,6 +1661,7 @@ def next_turn(body: NextBody):
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"prefetch failed: {exc}") from exc
     else:
+        turn_no = len(transcript) + 1
         agents: list[dict[str, Any]] = sess["agents"]
         speaker_idx = len(transcript) % 2
         discussion_topic = str(sess["discussion_topic"])

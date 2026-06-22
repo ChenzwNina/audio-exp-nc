@@ -52,9 +52,9 @@
   .meta .meta-df-type { font-weight: 500; }
   .meta .meta-df-type-filled_pause { color: #e65100; }
   .meta .meta-df-type-discourse_marker { color: #6a1b9a; }
-  .meta .meta-df-type-elongation { color: #00695c; }
+  .meta .meta-df-type-prolongation { color: #00796b; }
   .meta .meta-df-type-self_repair { color: #c62828; }
-  .meta .meta-df-type-stumble { color: #37474f; }
+  .meta .meta-df-type-repetition { color: #3949ab; }
   .segmented-body {
     white-space: pre-wrap;
     word-break: break-word;
@@ -83,17 +83,17 @@
     color: #6a1b9a;
     background: #f3e5f5;
   }
-  .disfluency-elongation {
-    color: #00695c;
-    background: #e0f2f1;
+  .disfluency-prolongation {
+    color: #00796b;
+    background: #b2dfdb;
   }
   .disfluency-self_repair {
     color: #c62828;
     background: #ffebee;
   }
-  .disfluency-stumble {
-    color: #37474f;
-    background: #eceff1;
+  .disfluency-repetition {
+    color: #3949ab;
+    background: #e8eaf6;
   }
   .expr-tag {
     color: #1565c0;
@@ -175,6 +175,7 @@
   .conversation-toolbar { margin-bottom: 12px; }
   .grow { flex: 1; min-width: 200px; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 </head>
 <body>
 <h1>Two-agent dialogue</h1>
@@ -214,6 +215,7 @@
       <button id="stop-chain-btn" type="button" disabled title="Stop requesting further turns (finishes current request first)">Stop generation</button>
       <button id="save-export-btn" type="button" disabled title="Download transcript as a single HTML file with embedded audio">Save HTML &amp; audio</button>
       <button id="save-clean-transcript-btn" type="button" disabled title="Download transcript using text before disfluencies were added">Save clean transcript</button>
+      <button id="save-audio-mp3-btn" type="button" disabled title="Download all turn audio merged into a single MP3 file">Download full audio (MP3)</button>
       <span id="save-export-status" class="muted"></span>
     </div>
     <p class="muted" style="margin-top:8px;font-size:12px;margin-bottom:0"><strong>Stop generation</strong> cancels the automatic chain only: any request already in flight will still complete.</p>
@@ -282,9 +284,9 @@ function personaCards(agents) {
 const DISFLUENCY_LABELS = {
   filled_pause: "filled pause",
   discourse_marker: "discourse marker",
-  elongation: "elongation",
+  prolongation: "prolongation",
   self_repair: "self-repair",
-  stumble: "stumble",
+  repetition: "repetition",
 };
 
 const TAG_MARKER_OPEN = "\uFFF0";
@@ -863,6 +865,7 @@ function updateSaveExportButton() {
   const enabled = sessionTurns.length > 0;
   $("save-export-btn").disabled = !enabled;
   $("save-clean-transcript-btn").disabled = !enabled;
+  $("save-audio-mp3-btn").disabled = !enabled;
 }
 
 /** Spoken text from clean segments (after split, before disfluency). */
@@ -882,11 +885,10 @@ function buildCleanTranscriptHtml(meta, turns) {
   const body = turns.map((entry) => {
     const turnNo = Number(entry.turn);
     const speaker = entry.speaker || "";
-    const spoken = cleanTurnSpokenText(entry);
     return (
       `<article class="turn">` +
       `<div class="meta"><strong>Turn ${escapeHtml(String(turnNo))}</strong> · ${escapeHtml(speaker)}</div>` +
-      `<div class="segmented-body"><span class="speaker">${escapeHtml(speaker)}:</span> ${escapeHtml(spoken)}</div>` +
+      `<div class="segmented-body">${renderTurnDisplay(entry)}</div>` +
       `</article>`
     );
   }).join("");
@@ -899,10 +901,9 @@ function buildCleanTranscriptHtml(meta, turns) {
 <style>${exportStylesheet()}</style>
 </head>
 <body>
-<h1>Clean transcript (pre-disfluency)</h1>
+<h1>Transcript</h1>
 <p class="muted">Topic: <strong>${escapeHtml(topic)}</strong><br/>
-Session: <code>${escapeHtml(sessionLabel)}</code> · exported ${escapeHtml(exportedAt)}<br/>
-Text is from <code>segments</code> after punctuation split and before disfluency insertion (no backchannels, expression tags, or TTS audio).</p>
+Session: <code>${escapeHtml(sessionLabel)}</code> · exported ${escapeHtml(exportedAt)}</p>
 ${body}
 </body>
 </html>`;
@@ -1099,6 +1100,191 @@ async function concatTurnAudioClips(lines) {
   }
 }
 
+async function renderTurnToAudioBuffer(lines) {
+  const segs = (lines || [])
+    .filter((l) => l.kind === "segment" && l.audio_base64)
+    .sort((a, b) => Number(a.segment_index) - Number(b.segment_index));
+  if (!segs.length) return null;
+
+  const bcByUnit = new Map();
+  for (const line of lines || []) {
+    if (line.kind === "backchannel" && line.audio_base64) {
+      bcByUnit.set(Number(line.segment_index), line);
+    }
+  }
+
+  const bcDelayS = BC_DELAY_MEAN_S;
+  const bcVolume = BACKCHANNEL_VOLUME;
+  const decodeCtx = new AudioContext();
+  try {
+    const segBuffers = [];
+    for (const line of segs) {
+      segBuffers.push(await decodeAudioBase64Clip(decodeCtx, line.audio_base64));
+    }
+    const segStarts = [];
+    let cursor = 0;
+    for (const buf of segBuffers) {
+      segStarts.push(cursor);
+      cursor += buf.duration;
+    }
+    const lastSegEnd = cursor;
+    const mixEvents = [];
+    for (let i = 0; i < segBuffers.length; i++) {
+      mixEvents.push({ buffer: segBuffers[i], startSec: segStarts[i], volume: 1.0 });
+    }
+    let totalSec = lastSegEnd;
+    for (let j = 1; j < segs.length; j++) {
+      const bcIdx = Number(segs[j - 1].segment_index);
+      const bcLine = bcByUnit.get(bcIdx);
+      if (!bcLine) continue;
+      const bcBuf = await decodeAudioBase64Clip(decodeCtx, bcLine.audio_base64);
+      const startSec = segStarts[j] + bcDelayS;
+      mixEvents.push({ buffer: bcBuf, startSec, volume: bcVolume });
+      totalSec = Math.max(totalSec, startSec + bcBuf.duration);
+    }
+    const trailingIdx = Number(segs[segs.length - 1].segment_index);
+    const trailingBc = bcByUnit.get(trailingIdx);
+    if (trailingBc) {
+      const bcBuf = await decodeAudioBase64Clip(decodeCtx, trailingBc.audio_base64);
+      const startSec = lastSegEnd + bcDelayS;
+      mixEvents.push({ buffer: bcBuf, startSec, volume: bcVolume });
+      totalSec = Math.max(totalSec, startSec + bcBuf.duration);
+    }
+    const sampleRate = segBuffers[0].sampleRate;
+    const channels = segBuffers[0].numberOfChannels;
+    const totalFrames = Math.ceil(totalSec * sampleRate);
+    const offline = new OfflineAudioContext(channels, totalFrames, sampleRate);
+    for (const ev of mixEvents) {
+      const src = offline.createBufferSource();
+      src.buffer = ev.buffer;
+      const gain = offline.createGain();
+      gain.gain.value = ev.volume;
+      src.connect(gain);
+      gain.connect(offline.destination);
+      src.start(ev.startSec);
+    }
+    return await offline.startRendering();
+  } finally {
+    await decodeCtx.close();
+  }
+}
+
+function audioBufferToMp3(buffer, kbps = 128) {
+  const channels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const encoder = new lamejs.Mp3Encoder(channels, sampleRate, kbps);
+  const blockSize = 1152;
+  const mp3Data = [];
+
+  const toInt16 = (float32) => {
+    const out = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      out[i] = s < 0 ? Math.round(s * 0x8000) : Math.round(s * 0x7fff);
+    }
+    return out;
+  };
+
+  if (channels === 1) {
+    const samples = toInt16(buffer.getChannelData(0));
+    for (let i = 0; i < samples.length; i += blockSize) {
+      const chunk = samples.subarray(i, i + blockSize);
+      const mp3buf = encoder.encodeBuffer(chunk);
+      if (mp3buf.length > 0) mp3Data.push(mp3buf);
+    }
+  } else {
+    const left = toInt16(buffer.getChannelData(0));
+    const right = toInt16(buffer.getChannelData(1));
+    for (let i = 0; i < left.length; i += blockSize) {
+      const mp3buf = encoder.encodeBuffer(
+        left.subarray(i, i + blockSize),
+        right.subarray(i, i + blockSize)
+      );
+      if (mp3buf.length > 0) mp3Data.push(mp3buf);
+    }
+  }
+  const end = encoder.flush();
+  if (end.length > 0) mp3Data.push(end);
+
+  let totalLen = 0;
+  for (const buf of mp3Data) totalLen += buf.length;
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const buf of mp3Data) {
+    result.set(buf, offset);
+    offset += buf.length;
+  }
+  return result;
+}
+
+const TURN_GAP_S = 0.8;
+
+async function saveFullAudioMp3() {
+  if (!sessionTurns.length) return;
+
+  const btn = $("save-audio-mp3-btn");
+  const statusEl = $("save-export-status");
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  statusEl.textContent = "Collecting audio for MP3…";
+
+  try {
+    const turns = [];
+    for (const t of sessionTurns) {
+      turns.push(await ensureTurnAudioCollected(t));
+    }
+
+    statusEl.textContent = "Rendering turn audio…";
+    const turnBuffers = [];
+    for (const entry of turns) {
+      const buf = await renderTurnToAudioBuffer(entry.audio_lines || []);
+      if (buf) turnBuffers.push(buf);
+    }
+
+    if (!turnBuffers.length) {
+      statusEl.textContent = "No audio to export.";
+      return;
+    }
+
+    statusEl.textContent = "Stitching all turns…";
+    const sampleRate = turnBuffers[0].sampleRate;
+    const channels = turnBuffers[0].numberOfChannels;
+    const gapFrames = Math.ceil(TURN_GAP_S * sampleRate);
+
+    let totalFrames = 0;
+    for (let i = 0; i < turnBuffers.length; i++) {
+      totalFrames += turnBuffers[i].length;
+      if (i < turnBuffers.length - 1) totalFrames += gapFrames;
+    }
+
+    const offline = new OfflineAudioContext(channels, totalFrames, sampleRate);
+    let offset = 0;
+    for (let i = 0; i < turnBuffers.length; i++) {
+      const src = offline.createBufferSource();
+      src.buffer = turnBuffers[i];
+      src.connect(offline.destination);
+      src.start(offset / sampleRate);
+      offset += turnBuffers[i].length;
+      if (i < turnBuffers.length - 1) offset += gapFrames;
+    }
+    const fullBuffer = await offline.startRendering();
+
+    statusEl.textContent = "Encoding MP3…";
+    const mp3Bytes = audioBufferToMp3(fullBuffer);
+
+    const blob = new Blob([mp3Bytes], { type: "audio/mpeg" });
+    const stamp = sessionExportMeta?.session_id || String(Date.now());
+    downloadBlob(blob, `dialogue-${stamp}.mp3`);
+    statusEl.textContent = "MP3 saved.";
+  } catch (e) {
+    statusEl.textContent = "";
+    alert(e.message || String(e));
+  } finally {
+    btn.textContent = prevLabel;
+    updateSaveExportButton();
+  }
+}
+
 function renderExportTurnAudio(entry, turnClip) {
   if (!turnClip?.src) return "";
   const speaker = entry.speaker || "Speaker";
@@ -1128,9 +1314,9 @@ function exportStylesheet() {
   .disfluency { font-weight: 600; border-radius: 4px; padding: 0 2px; }
   .disfluency-filled_pause { color: #e65100; background: #fff3e0; }
   .disfluency-discourse_marker { color: #6a1b9a; background: #f3e5f5; }
-  .disfluency-elongation { color: #00695c; background: #e0f2f1; }
+  .disfluency-prolongation { color: #00796b; background: #b2dfdb; }
   .disfluency-self_repair { color: #c62828; background: #ffebee; }
-  .disfluency-stumble { color: #37474f; background: #eceff1; }
+  .disfluency-repetition { color: #3949ab; background: #e8eaf6; }
   .expr-tag { color: #1565c0; background: #e3f2fd; font-weight: 700; font-size: 12px; border-radius: 4px; padding: 0 3px; font-style: italic; }
   .timings-block { margin-top: 8px; padding: 8px 10px; background: #f5f5f5; border-radius: 6px; font-size: 12px; line-height: 1.5; color: #555; }
   .timing-row { display: flex; flex-wrap: wrap; gap: 4px 14px; }
@@ -1142,14 +1328,22 @@ function exportStylesheet() {
   .audio-label { font-size: 11px; color: #666; font-weight: 600; margin-bottom: 2px; }
   .audio-text { font-size: 12px; color: #333; margin-bottom: 4px; }
   .audio-clip audio { width: 100%; max-width: 420px; height: 32px; }
+  .full-audio { margin-bottom: 24px; padding: 16px; background: #f5f7fa; border-radius: 8px; border: 1px solid #e0e0e0; }
+  .full-audio h2 { margin: 0 0 10px 0; font-size: 16px; color: #333; }
+  .full-audio audio { width: 100%; max-width: 560px; height: 40px; }
   `.trim();
 }
 
-function buildExportHtml(meta, turns, turnClipsByTurn) {
+function buildExportHtml(meta, turns, turnClipsByTurn, fullAudioDataUrl) {
   const topic = meta?.discussion_topic || "";
   const exportedAt = meta?.exported_at || new Date().toISOString();
   const sessionLabel = meta?.session_id || "unknown";
   const ttsBit = meta?.tts_enabled ? "TTS on" : "TTS off";
+
+  let fullAudioBlock = "";
+  if (fullAudioDataUrl) {
+    fullAudioBlock = `<div class="full-audio"><h2>Full conversation audio</h2><audio controls preload="metadata" src="${fullAudioDataUrl}"></audio></div>`;
+  }
 
   let body = "";
   for (const entry of turns) {
@@ -1174,6 +1368,7 @@ function buildExportHtml(meta, turns, turnClipsByTurn) {
 <h1>Two-agent dialogue export</h1>
 <p class="muted">Topic: <strong>${escapeHtml(topic)}</strong><br/>
 Session: <code>${escapeHtml(sessionLabel)}</code> · ${escapeHtml(ttsBit)} · exported ${escapeHtml(exportedAt)}</p>
+${fullAudioBlock}
 ${body}
 </body>
 </html>`;
@@ -1195,12 +1390,42 @@ async function saveConversationExport() {
       recordTurn(turns[turns.length - 1]);
     }
 
-    statusEl.textContent = "Concatenating audio…";
+    statusEl.textContent = "Rendering per-turn audio…";
     const turnClipsByTurn = new Map();
+    const turnBuffers = [];
     for (const entry of turns) {
       const turnNo = Number(entry.turn);
       const turnClip = await concatTurnAudioClips(entry.audio_lines || []);
       if (turnClip) turnClipsByTurn.set(turnNo, turnClip);
+      const buf = await renderTurnToAudioBuffer(entry.audio_lines || []);
+      if (buf) turnBuffers.push(buf);
+    }
+
+    let fullAudioDataUrl = "";
+    if (turnBuffers.length) {
+      statusEl.textContent = "Stitching full conversation audio…";
+      const sampleRate = turnBuffers[0].sampleRate;
+      const channels = turnBuffers[0].numberOfChannels;
+      const gapFrames = Math.ceil(TURN_GAP_S * sampleRate);
+      let totalFrames = 0;
+      for (let i = 0; i < turnBuffers.length; i++) {
+        totalFrames += turnBuffers[i].length;
+        if (i < turnBuffers.length - 1) totalFrames += gapFrames;
+      }
+      const offline = new OfflineAudioContext(channels, totalFrames, sampleRate);
+      let frameOffset = 0;
+      for (let i = 0; i < turnBuffers.length; i++) {
+        const src = offline.createBufferSource();
+        src.buffer = turnBuffers[i];
+        src.connect(offline.destination);
+        src.start(frameOffset / sampleRate);
+        frameOffset += turnBuffers[i].length;
+        if (i < turnBuffers.length - 1) frameOffset += gapFrames;
+      }
+      const fullBuffer = await offline.startRendering();
+      statusEl.textContent = "Encoding full audio…";
+      const wav = audioBufferToWav(fullBuffer);
+      fullAudioDataUrl = `data:audio/wav;base64,${uint8ToBase64(wav)}`;
     }
 
     const meta = {
@@ -1209,7 +1434,7 @@ async function saveConversationExport() {
     };
 
     statusEl.textContent = "Building HTML…";
-    const html = buildExportHtml(meta, turns, turnClipsByTurn);
+    const html = buildExportHtml(meta, turns, turnClipsByTurn, fullAudioDataUrl);
     const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const stamp = meta.session_id || String(Date.now());
     downloadBlob(blob, `dialogue-${stamp}.html`);
@@ -1544,6 +1769,10 @@ document.getElementById("save-export-btn").onclick = async () => {
 
 document.getElementById("save-clean-transcript-btn").onclick = () => {
   saveCleanTranscriptExport();
+};
+
+document.getElementById("save-audio-mp3-btn").onclick = async () => {
+  await saveFullAudioMp3();
 };
 
 (async () => {

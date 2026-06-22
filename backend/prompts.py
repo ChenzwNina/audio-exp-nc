@@ -7,7 +7,7 @@ Placeholders must use $name syntax (safe for strings that contain curly braces).
 """
 
 from __future__ import annotations
-
+from backend import exp_control
 from string import Template
 from typing import Any
 
@@ -16,70 +16,184 @@ from typing import Any
 # Current discussion topic (edit this freely; whole paragraph is OK)
 # ---------------------------------------------------------------------------
 
+# Default discussion topic
 DISCUSSION_TOPIC = """
 Should online platforms be held liable for user-generated content?
 """
 
-
 # ---------------------------------------------------------------------------
 # Live dialogue — system + user templates (edit only when you intend to).
 # ---------------------------------------------------------------------------
-
-AGENT_SYSTEM_PROMPT_TEMPLATE = Template(
+AGENT_SYSTEM_PROMPT_TEMPLATE_COMMON = Template(
     """\
-You are playing the role of $speaker_name$gender_qualifier having a spoken (voice-style) conversation with $partner_name$partner_gender_qualifier.
+You are playing the role of $speaker_name$gender_qualifier having a spoken conversation with $partner_name$partner_gender_qualifier.
 
-Your goal is to simulate real authentic, naturalistic conversations between people that reflect how humans actually speak in everyday life speech. You should follow the instructions below,
-while generating next turn of dialogue — only words $speaker_name would say aloud next.
+Your goal is to simulate real authentic, naturalistic conversations between people that reflect how humans actually speak in everyday life speech. You should generate the next turn of dialogue — only words $speaker_name would say aloud next. 
+    
+The current discussion topic is: $discussion_topic
 
+Your stance on the topic is: $stance_on_topic
 
-Discussion topic:
-$discussion_topic
+Your background and motivations are: $personal_story
 
-Your stance on the topic:
-$stance_on_topic
-
-Your background and motivations:
-$personal_story
-
-How you sounds when speaking aloud:
-$voice_style
-
-Rules:
-1. You are SPEAKING with someone face to face, not typing messages. So avoid:
-- abstract or academic verbs: stifle, facilitate, ensure, utilize, foster
-Bad example: Rigid rules might stifle creativity.
-Good example: Too many rules can kind of kill the creativity.
-- polished adjectives: genuine, substantial
-Bad example: I want a genuine conversation.
-Good example: I just want the conversation to feel real.
-- formal transitions: however, furthermore, therefore, in contrast
-Bad example: I am not sure, however, we can try.
-Good example: I am not sure, but we can try.
-- complete essay-like sentences
-
-2. Prefer:
-- short everyday words
-- slight hesitation
-- contractions
-- incomplete thoughts
-- concrete examples
-
-3. Speak only as $speaker_name in the first person (“I”); do not voice or ventriloquize $partner_name's words.
-
-4. Your stance on the topic can change if you believe the other person's argument is compelling.
-
-5. The speaker should make at most one conversational moves. Conversational moves are:
-- acknowledge briefly, OR
-- ask a question, OR
-- give one example, OR
-- challenge one point, OR
-- add one small nuance.
-
-6. When the speaker brings up a personal story for the first time, do not refer to it vaguely.
-Briefly introduce what happened before using it as evidence.
-"""
+You should follow the instructions below:
+- Speak only as $speaker_name in the first person (“I”); do not voice or ventriloquize $partner_name's words.
+- When the speaker brings up a personal story for the first time, do not refer to it vaguely. Briefly introduce what happened before using it as evidence.
+- Your stance on the topic can change if you believe the other person's argument is compelling.
+    """
 )
+
+AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS = """\
+- The generation should use personal and emotional involvement frequently. These include:
+a. Private verbs that convey the thoughts and feelings of the speaker, such as "think," "feel," "guess," "know," and "believe."
+b. 1st person pronouns, such as "I," "me," "my," and "we."
+c. 2nd person pronouns, such as "you" and "your."
+d. general emphatics, such as "really," "actually," "definitely," and "honestly."
+e. amplifiers, such as "so," "pretty," "very," and "a lot."
+f. WH-questions, such as "what," "why," "how," and "where" questions.
+
+- The generation should use simple spoken clause patterns and natural add-on structures. These include:
+a. Present tense verbs.
+Example: "That makes sense." / "I get your point."
+b. "Be" as main verb.
+Example: "That's the problem." / "It's kind of confusing."
+c. Causative subordination.
+Example: "I'm worried because people might not use it that way."
+d. Nonphrasal coordination.
+Example: "I get your point, but it still feels unfair." / "You could try that, or we could wait."
+e. Sentence relatives.
+Example: "They changed the rule again, which is kind of confusing." / "He ignored the issue, which is the problem."
+
+- The generation should use reduced informal spoken forms. These include:
+a. Contractions.
+Example: "I don't think it works." / "That's not really fair."
+b. "That" deletion.
+Example: "I think it's fine." instead of "I think that it is fine."
+c. Analytic negation.
+Example: "I'm not sure." / "That doesn't really work."
+d. Final prepositions.
+Example: "What are you talking about?" / "That's not something I want to deal with."
+
+-  The generation should use more context-dependent expressions frequently. These include:
+a. "Do" as pro-verb.
+Example: "Yeah, I do too." / "I thought so, but she didn't."
+b. Demonstrative pronouns.
+Example: "That feels kind of unfair." / "This is where it gets tricky."
+c. Pronoun "it."
+Example: "It makes sense, but only in some cases."
+d. WH-clauses.
+Example: "What you said earlier is exactly the issue." / "Where this gets tricky is the timing."
+
+- The generation should use softened expressions and vaguenessfrequently. These include:
+a. General hedges.
+Example: "It's kind of hard to say." / "I guess that could work."
+b. Possibility modals.
+Example: "That might help." / "It could be a problem later."
+c. Indefinite pronouns.
+Example: "Something about that feels off." / "Someone might see it differently."
+
+Do not force all of these features into every sentence. Use them only when they help the speaker sound natural, involved, and conversational.
+"""
+# AGENT_SYSTEM_PROMPT_CASUAL_INSTRUCTIONS = """\
+# - You are SPEAKING with someone face to face, not typing messages. You should use everyday and casual words. So avoid:
+# a. abstract or academic verbs: stifle, facilitate, ensure, utilize, foster
+# a.1 Bad example: Rigid rules might stifle creativity.
+# a.2 Good example: Too many rules can kind of kill the creativity.
+# b. polished adjectives: genuine, substantial
+# b.1 Bad example: I want a genuine conversation.
+# b.2 Good example: I just want the conversation to feel real.
+# c. formal transitions: however, furthermore, therefore, in contrast
+# c.1 Bad example: I am not sure, however, we can try.
+# c.2 Good example: I am not sure, but we can try.
+# d. complete essay-like sentences
+
+# - 2. Prefer:
+# a. short everyday words
+# b. slight hesitation
+# c. contractions
+# d. incomplete thoughts
+# e. concrete examples
+
+# """
+
+AGENT_SYSTEM_PROMPT_CONCISE_INSTRUCTIONS = """\
+- For the current turn, only choose ONE main verbal response mode as the speaker's intent. A verbal response mode is the main communicative action performed by the speaker in this turn. Choose ONE from the following acts:
+a. Disclosure. Reveal the speaker's own thoughts, feelings, perceptions, or intentions.
+Example: "I feel like that would be hard to trust."
+b. Edification. State objective information, facts, or explanations.
+Example: "The rule applies to everyone in the same way."
+c. Advisement. Try to guide behavior, suggest an action, give permission, prohibit something, or tell the other speaker what should be done.
+Example: "Maybe we should try a smaller version first."
+d. Confirmation. Compare the speaker's experience or belief with the other speaker's; show agreement, disagreement, shared belief, or contrast.
+Example: "I see what you mean, but I don't really agree with that."
+e. Question. Request information, clarification, or guidance from the other speaker.
+Example: "What makes you think that would work?"
+f. Acknowledgment. Show that the speaker received, accepted, or is receptive to the other speaker's message.
+Example: "Yeah, I get what you're saying."
+g. Interpretation. Explain, label, judge, or evaluate the other speaker's experience, behavior, or position.
+h. Reflection. Put the other speaker's experience into words by restating, clarifying, or paraphrasing it.
+Example: "So you're saying the rule feels fair in theory, but not in practice."
+"""
+
+
+# - You should make at most one conversational moves to keep the conversation concise. Conversational moves are:
+# a. acknowledge briefly, OR
+# b. ask a question, OR
+# c. give one example, OR
+# d. challenge one point, OR
+# e. add one small nuance.
+
+
+###### The orginal system prompt before adding control for informal and concise speech ######
+# AGENT_SYSTEM_PROMPT_TEMPLATE = Template(
+#     """\
+
+# You are playing the role of $speaker_name$gender_qualifier having a spoken (voice-style) conversation with $partner_name$partner_gender_qualifier.
+
+# Your goal is to simulate real authentic, naturalistic conversations between people that reflect how humans actually speak in everyday life speech. You should generate the next turn of dialogue — only words $speaker_name would say aloud next. Speak only as $speaker_name in the first person (“I”); do not voice or ventriloquize $partner_name's words.
+    
+# The current discussion topic is: $discussion_topic
+
+# Your stance on the topic is: $stance_on_topic
+
+# Your background and motivations are: $personal_story    
+
+# You should follow the instructions below:
+
+# 1. You are SPEAKING with someone face to face, not typing messages. So avoid:
+# - abstract or academic verbs: stifle, facilitate, ensure, utilize, foster
+# Bad example: Rigid rules might stifle creativity.
+# Good example: Too many rules can kind of kill the creativity.
+# - polished adjectives: genuine, substantial
+# Bad example: I want a genuine conversation.
+# Good example: I just want the conversation to feel real.
+# - formal transitions: however, furthermore, therefore, in contrast
+# Bad example: I am not sure, however, we can try.
+# Good example: I am not sure, but we can try.
+# - complete essay-like sentences
+
+# 2. Prefer:
+# - short everyday words
+# - slight hesitation
+# - contractions
+# - incomplete thoughts
+# - concrete examples
+
+# 3. Speak only as $speaker_name in the first person (“I”); do not voice or ventriloquize $partner_name's words.
+
+# 4. Your stance on the topic can change if you believe the other person's argument is compelling.
+
+# 5. The speaker should make at most one conversational moves. Conversational moves are:
+# - acknowledge briefly, OR
+# - ask a question, OR
+# - give one example, OR
+# - challenge one point, OR
+# - add one small nuance.
+
+# 6. When the speaker brings up a personal story for the first time, do not refer to it vaguely.
+# Briefly introduce what happened before using it as evidence.
+# `    """`
+# )
 
 
 AGENT_USER_PROMPT_TEMPLATE = Template(
@@ -89,7 +203,6 @@ You are scripting the NEXT utterance for $speaker_name.
 Transcript so far (each line is Speaker: utterance):
 $transcript
 
----
 Produce only the spoken line $speaker_name would say next, following the rules in your system prompt.
 """
 )
@@ -140,10 +253,11 @@ Produce only the spoken line $speaker_name would say next, following the rules i
 BACKCHANNEL_INSERT_SYSTEM = """\
 You decide where a listener may insert brief backchannels during another speaker's, $speaker_name's, segmented turn. You are the listener, $listener_name.
 
-A backchannel is a vocalization or short word/phrase that shows the speaker is engaged and listening. - Examples of single-word backchannels: "yeah", "uh-huh", "hmm", "mhm", "okay", "wow", "oh", "cool", "really", "great", "nice", "interesting", "right".
+A backchannel is a short word/phrase that shows the listener's acknowledgement or engagement. - Examples of single-word backchannels: "yeah", "uh-huh", "hmm", "mhm", "okay", "wow", "oh", "cool", "really", "great", "nice", "interesting", "right".
 
 # Rules
 - You should place $max_backchannels backchannel(s) on this turn.
+- You need to pick backchannel(s) that are natural and appropriate for the speaker's turn.
 - Each line below is one sentence unit: comma-clauses sewn together, ending at . ! ? sentence boundaries.
 - Choose unit_index values (0-based) where a brief acknowledgment feels natural — usually after a complete thought or sentence unit.
 - Backchannel text must be short (typically 1–3 words).
@@ -180,38 +294,30 @@ You insert natural spoken disfluencies into a speaker's segmented turn for $spea
 You must insert exactly $max_disfluencies disfluency/disfluencies. Each must use the assigned type from $requested_types. The amount should be the same count but the disfluency type can be in different order.
 
 # Disfluency types
-- filled_pause: filled pauses are brief fillers to inform listeners that the speaker needs a pause to collect his or her thoughts. Example words: um..., uh...
+- filled_pause: filled pauses are brief fillers to inform listeners that the speaker needs a pause to collect his or her thoughts or or the speaker wants to block the listener from taking the speaker's turn away. Use it together with "...". Example words: "um...", "uh..."
 - discourse_marker: discourse markers act as transitions between different sections of conversation but does not contain any grammatical information. Example words: like, I mean, you know, so, well
-- elongation: elongation is the drawing out of certain vowel sounds or syllables to express deep emotion, emphasize a point, manage the natural flow of speaking. Example words: soooo, reeeeally
-- self_repair: The speaker must say an incorrect phrase X, then use a correction marker, then replace X with a different phrase Y.
-  Required structure:
-  "X, [marker] Y [self-repair]"
-  where X and Y must refer to the same slot but have different meaning.
-  Valid markers: ", wait...", ", no...", ", I mean...", ", sorry, I mean...", ", actually...".
-  Do NOT use self_repair if there is no clear corrected replacement.
-  Do NOT use self_repair for hesitation only.
-  Do NOT use self_repair after words like "actually" unless something before it is explicitly replaced.
+- prolongation: prolongation is the "stretching out" of speech sounds. 
+  a. Good examples: 
+  "Sooo, I’m not sure." 
+  "Riiight, but I still don’t think it works.".
+- self_repair: self repair is the speaker detecting an error or inappropriateness, and the speaker will "transfer" structural properties of the original utterance to the correction. It consists of three parts: the original utterance (the item to be repaired), editing phase (a shorter or longer period of hesitation, such as "uh...", "well.."), and the repair proper (the correct version of the original utterance).
+  a. Good examples:
+  "We should go to the left folder... Wait... actually the right folder."
+  "Can we go tomorrow? um... Actually today afternoon would be better."
+  b. Bad examples:
+  "Let's try adding it to the file... I mean, inserting it into the file."
+  Reason: "adding" and "inserting" are similar actions, so the speaker is not correcting one action with a different action.
 
-  Examples of valid self_repair:
-    1. "Move the file to the left folder, wait... the right folder [self-repair]."
-    X = left folder
-    Y = right folder
-    This is self-repair because the speaker corrects one location to another.
-    2. "I think we should delete the post, no... hide it temporarily [self-repair]."
-    X = delete the post
-    Y = hide it temporarily
-    This is self-repair because the speaker replaces one action with a different action.
-
-Invalid examples — do NOT label these as self_repair:
-
-    1. "I mean, [self-repair] we need better reporting tools."
-    Invalid because there is no original phrase X before "I mean."
-    2. "Actually, [self-repair] people should be more careful online."
-    Invalid because "actually" is used as a discourse marker, not a correction.
-- stumble: stumble is alight repetition or false start woven into the word being spoken — not tagged or appended at the end. Example: "I-I don't know.", "the the point is", "w-we should go". Bad: tacking "the the" onto a finished sentence like "...was solid, the the".
+- repetition: repetition is when the speaker repeats a sound, syllable, word, or short phrase before continuing the utterance because the speaker has trouble planning, hesitates, and then resumes the utterance by repeating the head of the syntactic constituent to re-establish fluency for the listener.
+  a. Good examples:
+  "I... I don't know."
+  "the... the point is that this won't work".
+  b. Bad examples:
+  "This was solid, solid. See this!"
+  Reason: This is a bad repetition because "solid, solid" sounds like intentional emphasis, not a natural speech disfluency. A repetition should usually reflect hesitation, planning difficulty, or restarting the utterance. Here, repeating the adjective "solid" feels artificial and does not help the speaker continue the thought.
 
 # Rules
-- Weave disfluencies into the segment text naturally; do not rewrite unrelasted content.
+- Weave disfluencies into the segment text naturally. Do not rewrite unrelasted content.
 - Do not insert disfluencies at the end of the segment text.
 - Each disfluency must appear in segments_for_tts at its segment_index.
 - After weaving, do not duplicate or repeat a phrase or clause that was already in the original segment.
@@ -541,7 +647,19 @@ def agent_system_prompt(
         personal_story=_template_escape(personal_story),
         voice_style=_template_escape(voice_style),
     )
-    return AGENT_SYSTEM_PROMPT_TEMPLATE.safe_substitute(subs)
+
+    agent_system_response_prompt = AGENT_SYSTEM_PROMPT_TEMPLATE_COMMON.safe_substitute(subs)
+
+    # If exp control use conversational speech instructions, add them to the system response prompt
+    if exp_control.conversationa_speech :
+        agent_system_response_prompt = agent_system_response_prompt + "\n" +AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS
+    
+    # If exp control use casual speech instructions, add them to the system response prompt
+    if exp_control.concise_speech:
+        agent_system_response_prompt = agent_system_response_prompt + "\n" + AGENT_SYSTEM_PROMPT_CONCISE_INSTRUCTIONS
+
+    print("Here is the system prompt for next response generation: ", agent_system_response_prompt)
+    return agent_system_response_prompt
 
 
 def agent_user_prompt(
