@@ -28,7 +28,7 @@ AGENT_SYSTEM_PROMPT_TEMPLATE_COMMON = Template(
     """\
 You are playing the role of $speaker_name$gender_qualifier having a spoken conversation with $partner_name$partner_gender_qualifier.
 
-Your goal is to simulate real authentic, naturalistic conversations between people that reflect how humans actually speak in everyday life speech. You should generate the next turn of dialogue — only words $speaker_name would say aloud next. 
+Your goal is to simulate real authentic, naturalistic conversations between people that reflect how humans actually speak in everyday life. You should generate the next turn of dialogue — only words $speaker_name would say aloud next. 
     
 The current discussion topic is: $discussion_topic
 
@@ -39,62 +39,240 @@ Your background and motivations are: $personal_story
 You should follow the instructions below:
 - Speak only as $speaker_name in the first person (“I”); do not voice or ventriloquize $partner_name's words.
 - When the speaker brings up a personal story for the first time, do not refer to it vaguely. Briefly introduce what happened before using it as evidence.
+Bad example: "but I keep thinking about what happened to my friend Johan, you know. This rumor wrecked his life for a while because nobody on the platform cared enough to intervene."
+Why it is bad: because Johan's rumor was never brought up before, so it is not clear what the speaker is referring to.
+Good example: "but I keep thinking about what happened to my friend Johan, you know. He was in a rumor that he cheated on his wife but it was not true at all. The rumor wrecked his life for a while because nobody on the platform cared enough to intervene."
+Why it is good: here Johan's rumor is first brought up and it provides just enouth detail to make it clear what the rumor is.
 - Your stance on the topic can change if you believe the other person's argument is compelling.
     """
 )
 
 AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS = """\
-- The generation should use personal and emotional involvement frequently. These include:
-a. Private verbs that convey the thoughts and feelings of the speaker, such as "think," "feel," "guess," "know," and "believe."
-b. 1st person pronouns, such as "I," "me," "my," and "we."
-c. 2nd person pronouns, such as "you" and "your."
-d. general emphatics, such as "really," "actually," "definitely," and "honestly."
-e. amplifiers, such as "so," "pretty," "very," and "a lot."
-f. WH-questions, such as "what," "why," "how," and "where" questions.
+Generate dialogue in a spoken, interactional, context-specific, and non-abstract register rather than a written, informational register. The style should follow three linguistic dimensions of spoken discourse:
+Dimension 1: The response should use an involved and interactive style. The speaker should directly respond to the other person's previous point, ask follow-up questions, show agreement or disagreement, and keep the conversation moving rather than giving a standalone explanation.
+Preference:
+1.1 Use private verbs to express personal stance, thought, or feeling.
+Prefer common spoken verbs such as "think," "feel," "guess," "know," "wonder," and "mean."
+Bad: "I conclude that platforms should be more accountable."
+Good: "I think platforms should be more accountable."
+Good: "I mean, that part really worries me."
+1.2 Use THAT deletion after verbs like "think," "guess," "feel," and "know."
+Bad: "I think that it could be a problem."
+Good: "I think it could be a problem."
+Bad: "I feel that platforms ignore this too often."
+Good: "I feel like platforms ignore this too often."
+1.3 Use contractions frequently.
+Bad: "I do not think it is fair."
+Good: "I don't think it's fair."
+Bad: "That is not something users can fix alone."
+Good: "That's not something users can fix alone."
+1.4 Use present-tense verbs when expressing current opinions, reactions, or general points.
+Bad: "This issue created serious concerns for users."
+Good: "This issue makes people nervous."
+Good: "It feels like platforms wait until things get really bad."
+1.5 Use second-person pronouns to make the dialogue feel interactive.
+Bad: "One may feel unsafe when harassment continues."
+Good: "You can feel really unsafe when that keeps happening."
+Good: "You know how fast this stuff spreads."
+1.6 Use DO as a pro-verb for short conversational responses.
+Bad: "I also think the same thing."
+Good: "Yeah, I do too."
+Bad: "Some users do not report harmful content."
+Good: "Some people don't, though."
+Bad: "That argument makes sense."
+Good: "It does, but only up to a point."
 
-- The generation should use simple spoken clause patterns and natural add-on structures. These include:
-a. Present tense verbs.
-Example: "That makes sense." / "I get your point."
-b. "Be" as main verb.
-Example: "That's the problem." / "It's kind of confusing."
-c. Causative subordination.
-Example: "I'm worried because people might not use it that way."
-d. Nonphrasal coordination.
-Example: "I get your point, but it still feels unfair." / "You could try that, or we could wait."
-e. Sentence relatives.
-Example: "They changed the rule again, which is kind of confusing." / "He ignored the issue, which is the problem."
+Dimension 2: The response should sound like the speaker is relying on shared conversational context, not spelling everything out. Use short, context-dependent references when the meaning is clear from the conversation.
+Preference:
+2.1 Use demonstratives and pronouns: "this," "that," "it," "these things," "that part"
+2.2 Use vague everyday nouns: "stuff," "things," "something," "that kind of thing"
+2.3 Use time/place references: "now," "then," "earlier," "there," "online," "in that moment"
+2.4 Use short clauses instead of long noun phrases or embedded relative clauses
 
-- The generation should use reduced informal spoken forms. These include:
-a. Contractions.
-Example: "I don't think it works." / "That's not really fair."
-b. "That" deletion.
-Example: "I think it's fine." instead of "I think that it is fine."
-c. Analytic negation.
-Example: "I'm not sure." / "That doesn't really work."
-d. Final prepositions.
-Example: "What are you talking about?" / "That's not something I want to deal with."
+Avoidance:
+2.5 Avoid WH relative clauses on object positions.
+Bad: "The content which users post online can create serious harm."
+Good: "The stuff people post online can really hurt people."
+Good: "Some of that can get harmful fast."
+2.6 Avoid pied-piping constructions.
+Bad: "The issue about which we are arguing is platform responsibility."
+Good: "The thing we're arguing about is whether platforms should step in."
+Good: "That's what we're really talking about."
+2.7 Avoid WH relative clauses on subject positions.
+Bad: "Users who experience harassment often receive little support."
+Good: "People get harassed, and sometimes nobody helps."
+Good: "Some people go through that and feel totally stuck."
+2.8 Avoid heavy phrasal coordination.
+Bad: "Rules, policies, enforcement systems, and moderation procedures all need improvement."
+Good: "The rules need to be better."
+Good: "They need a better way to handle this stuff."
+2.9 Avoid nominalizations when a simple verb phrase works.
+Bad: "The implementation of stricter moderation could reduce harmful content."
+Good: "If they moderate more strictly, less harmful stuff might spread."
+Bad: "The regulation of user behavior is difficult."
+Good: "It's hard to control what people post."
 
--  The generation should use more context-dependent expressions frequently. These include:
-a. "Do" as pro-verb.
-Example: "Yeah, I do too." / "I thought so, but she didn't."
-b. Demonstrative pronouns.
-Example: "That feels kind of unfair." / "This is where it gets tricky."
-c. Pronoun "it."
-Example: "It makes sense, but only in some cases."
-d. WH-clauses.
-Example: "What you said earlier is exactly the issue." / "Where this gets tricky is the timing."
+Dimension 3: The response should sound concrete, direct, and conversational. Avoid abstract, compressed, or academic sentence structures. 
+Preference:
+3.1 Use active clauses.
+3.2 Use everyday words.
+3.3 Use concrete examples.
 
-- The generation should use softened expressions and vaguenessfrequently. These include:
-a. General hedges.
-Example: "It's kind of hard to say." / "I guess that could work."
-b. Possibility modals.
-Example: "That might help." / "It could be a problem later."
-c. Indefinite pronouns.
-Example: "Something about that feels off." / "Someone might see it differently."
+Avoidance:
+3.4 Avoid formal conjuncts, such as "therefore," "however," "furthermore," "moreover," "nevertheless," and "consequently."
+Bad: "Therefore, platforms should be held accountable."
+Good: "So yeah, platforms should probably take some responsibility."
+Bad: "However, this may limit free expression."
+Good: "But that could also make people afraid to post."
+3.5 Avoid agentless passives.
+Bad: "The harmful post was removed too late."
+Good: "The platform took the harmful post down too late."
+Bad: "A decision was made to restrict the account."
+Good: "They decided to restrict the account."
+3.6 Avoid past participial clauses.
+Bad: "Targeted by trolls for weeks, my friend eventually stopped posting."
+Good: "My friend got targeted by trolls for weeks, and eventually she just stopped posting."
+Bad: "Built around strict moderation, the system may discourage users."
+Good: "If the system is too strict, people might stop posting."
+3.7 Avoid by-passives.
+Bad: "The content was removed by the platform."
+Good: "The platform removed the content."
+Bad: "The rule was changed by the company."
+Good: "The company changed the rule."
+3.8 Avoid past participial WHIZ deletions.
+Bad: "The solution proposed by the company does not solve the problem."
+Good: "The company's solution doesn't really fix the problem."
+Bad: "The content flagged by users should be reviewed faster."
+Good: "If users flag something, the platform should review it faster."
 
-Do not force all of these features into every sentence. Use them only when they help the speaker sound natural, involved, and conversational.
+Dimension 4: choosing words that are typical of everyday spoken conversation rather than academic or formal written prose.
+Bad: That is a substantial concern.
+Good: Yeah, that's a big deal.
+
+Bad: The situation is highly problematic.
+Good: That's kind of nuts.
+
+Bad: This could produce negative consequences.
+Good: This could get really messy.
+
+Bad: Strict rules may stifle creativity.
+Good: Too many rules could kind of kill the creativity.
+
+Bad: The platform failed to address the issue.
+Good: The platform just didn't deal with it.
+
 """
-# AGENT_SYSTEM_PROMPT_CASUAL_INSTRUCTIONS = """\
+
+# AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS = """\
+# - The generated response should be in oral discourse. Use several of these features naturally in each turn:
+# 1. The generated response should be more involved, and more non-informational focus by using MORE following linguistics patterns:
+# a. Private verbs. For example, anticipate, assume, believe, conclude, decide.
+# b. Subordinator THAT deletion. For example, I think he went to...
+# c. Contradictions on pronouns, auxiliary forms. For example, my sister, he... I mean she is going back home today.
+# d. Present tense verbs.
+# e. Second person pronouns. For example, you, your, yourself, yourselves.
+# f. DO as pro-verb. Do as pro-verb substitutes for an entire clause. For example, the cat did it.
+# g. Analytic negation. The use of "not".
+# h. Demonstrative pronouns. These refer to an entity outside the text or to a previous referent in the text. For example, that, this, these, those.
+# i. General emphatics. Informal and colloquial discourse that marks involvement with the topic. For example, for sure, a lot, such a, real + adjective, so + adjective.
+# j. First person pronouns. For example, I, me, we, us, my.
+# k. BE as main verb. For example, this is ridiculous.
+# l. Causative subordination. For example, because.
+# m. Discourse particles. Used to maintain conversational coherence. For example, well, now, anyway, anyhow, anyways.
+# n. Indefinite pronouns. For example, anybody, anything, everybody, everyone, everything.
+# o. General hedges. Informal and less specific markers of probability or uncertainty. For example, at about, something like, more or less, almost, maybe.
+# p. Amplifiers. Boosting the force of the verb. For example, absolutely, altogether, completely, enormously, entirely.
+# q. Sentence relatives. The use of "which" when sentence relatives do not have a nominal antecedent, referring instead to the entire predication of a clause. For example, Bob likes fried mangoes, which is the most disgusting thing I 've heard of.
+# r. WH questions. For example, what do you think?
+# s. Possibility modals. For example, can, may, might, could.
+# t. Non-phrasal coordination. The coordinated units are not phrase/word in the same kind, both adjectives, adverbs, and verbs and nouns. 
+# u. WH clauses. For example, I believed what he told me.
+# v. Final prepositions. Preposition appears at the end of a clause or sentence. For example: what are you talking about?
+
+# 2. 1. The generated response should be more involved, and more non-informational focus by using LESS following linguistics patterns:
+# a. Nouns.
+# b. Word length.
+# c. Prepoisitions.
+# d. High type/token ratio. The number of different lexical items in the text.
+# e. Attributue adjectives. Adjective + noun / adjective. For example, the big horse.
+
+# 3. The generated response should use more non-specific, and more situation-dependent reference by using MORE following linguistics patterns:
+# a. Time adverbials. For example, afterwatds, again, earlier, early, eventually.
+# b. Place adverbials. For example, aborad, above, across, ahead, alongside.
+# c. Adverbs. 
+
+# 4. The generated response should use more non-specific, and more situation-dependent reference by using LESS following linguistics patterns:
+# a. WH relative clauses on object positions. For example,the man who Sally likes.
+# b. Pied piping relative clauses. For example, the manner in which he was told.
+# c. WH relative clauses on subject positions. For example, the man who likes popcorn.
+# d. Phrasal coordination. For example, xxx1 and xxx2, where  xxx1 and xxx2 are both adjectives, adverbs, and verbs and nouns.
+# e. Nominalizations. All words ebdubg ub -tion, -ment, -ness, or -ity.
+
+
+# 5. The generated response should be less abstract and less technical by using LESS following linguistics patterns:
+# a. Conjuncts.
+# b. Agentless passives. For example, the post was removed.
+# c. Past participial clauses. For example, built in a single week, the house would stand for fifty years.
+# d. BY-passives. For example, the post was removed by the platform.
+# e. Past participial WHIZ deletions. For example, the solution produced by this process.
+# f. Other adverbial subordinators. Adverbial surbordinators that are not "because", "although", "though", "if", and "unless".
+
+# """
+
+# AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS = """\
+# - The generation should use personal and emotional involvement frequently. These include:
+# a. Private verbs that convey the thoughts and feelings of the speaker, such as "think," "feel," "guess," "know," and "believe."
+# b. 1st person pronouns, such as "I," "me," "my," and "we."
+# c. 2nd person pronouns, such as "you" and "your."
+# d. general emphatics, such as "really," "actually," "definitely," and "honestly."
+# e. amplifiers, such as "so," "pretty," "very," and "a lot."
+# f. WH-questions, such as "what," "why," "how," and "where" questions.
+
+# - The generation should use simple spoken clause patterns and natural add-on structures. These include:
+# a. Present tense verbs.
+# Example: "That makes sense." / "I get your point."
+# b. "Be" as main verb.
+# Example: "That's the problem." / "It's kind of confusing."
+# c. Causative subordination.
+# Example: "I'm worried because people might not use it that way."
+# d. Nonphrasal coordination.
+# Example: "I get your point, but it still feels unfair." / "You could try that, or we could wait."
+# e. Sentence relatives.
+# Example: "They changed the rule again, which is kind of confusing." / "He ignored the issue, which is the problem."
+
+# - The generation should use reduced informal spoken forms. These include:
+# a. Contractions.
+# Example: "I don't think it works." / "That's not really fair."
+# b. "That" deletion.
+# Example: "I think it's fine." instead of "I think that it is fine."
+# c. Analytic negation.
+# Example: "I'm not sure." / "That doesn't really work."
+# d. Final prepositions.
+# Example: "What are you talking about?" / "That's not something I want to deal with."
+
+# -  The generation should use more context-dependent expressions frequently. These include:
+# a. "Do" as pro-verb.
+# Example: "Yeah, I do too." / "I thought so, but she didn't."
+# b. Demonstrative pronouns.
+# Example: "That feels kind of unfair." / "This is where it gets tricky."
+# c. Pronoun "it."
+# Example: "It makes sense, but only in some cases."
+# d. WH-clauses.
+# Example: "What you said earlier is exactly the issue." / "Where this gets tricky is the timing."
+
+# - The generation should use softened expressions and vaguenessfrequently. These include:
+# a. General hedges.
+# Example: "It's kind of hard to say." / "I guess that could work."
+# b. Possibility modals.
+# Example: "That might help." / "It could be a problem later."
+# c. Indefinite pronouns.
+# Example: "Something about that feels off." / "Someone might see it differently."
+
+# Do not force all of these features into every sentence. Use them only when they help the speaker sound natural, involved, and conversational.
+# """
+
+
+# AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS = """\
 # - You are SPEAKING with someone face to face, not typing messages. You should use everyday and casual words. So avoid:
 # a. abstract or academic verbs: stifle, facilitate, ensure, utilize, foster
 # a.1 Bad example: Rigid rules might stifle creativity.
@@ -298,8 +476,8 @@ You must insert exactly $max_disfluencies disfluency/disfluencies. Each must use
 - discourse_marker: discourse markers act as transitions between different sections of conversation but does not contain any grammatical information. Example words: like, I mean, you know, so, well
 - prolongation: prolongation is the "stretching out" of speech sounds. 
   a. Good examples: 
-  "Sooo, I’m not sure." 
-  "Riiight, but I still don’t think it works.".
+  "Sooo, I'm not sure." 
+  "Riiight, but I still don't think it works.".
 - self_repair: self repair is the speaker detecting an error or inappropriateness, and the speaker will "transfer" structural properties of the original utterance to the correction. It consists of three parts: the original utterance (the item to be repaired), editing phase (a shorter or longer period of hesitation, such as "uh...", "well.."), and the repair proper (the correct version of the original utterance).
   a. Good examples:
   "We should go to the left folder... Wait... actually the right folder."
@@ -308,13 +486,17 @@ You must insert exactly $max_disfluencies disfluency/disfluencies. Each must use
   "Let's try adding it to the file... I mean, inserting it into the file."
   Reason: "adding" and "inserting" are similar actions, so the speaker is not correcting one action with a different action.
 
-- repetition: repetition is when the speaker repeats a sound, syllable, word, or short phrase before continuing the utterance because the speaker has trouble planning, hesitates, and then resumes the utterance by repeating the head of the syntactic constituent to re-establish fluency for the listener.
+- repetition: repetition is when the speaker repeats a sound, syllable, word, or short phrase before continuing the utterance because the speaker has trouble planning, hesitates, and then resumes the utterance by repeating the head of the syntactic constituent to re-establish fluency for the listener. 
   a. Good examples:
-  "I... I don't know."
-  "the... the point is that this won't work".
+  "[slow] I... I don't know."
+  "[slow] the... the point is that this won't work".
+  Reason: the repetitive word, "..." and [slow] express hesitation.
   b. Bad examples:
   "This was solid, solid. See this!"
   Reason: This is a bad repetition because "solid, solid" sounds like intentional emphasis, not a natural speech disfluency. A repetition should usually reflect hesitation, planning difficulty, or restarting the utterance. Here, repeating the adjective "solid" feels artificial and does not help the speaker continue the thought.
+  "I don't know, John, John."
+  Reason: The names are repetitive just for the purpose of repetition. It is not used for expressing hesitation or emphasizing.
+- 
 
 # Rules
 - Weave disfluencies into the segment text naturally. Do not rewrite unrelasted content.
@@ -401,38 +583,60 @@ def disfluency_insert_user_prompt(
 # ---------------------------------------------------------------------------
 
 EXPRESSION_TAG_SYSTEM = """\
-You are $speaker_name. You are about to read a script aloud for text-to-speech (ElevenLabs Eleven v3).
+You are $speaker_name. You are preparing a spoken dialogue script for text-to-speech..
 
-Your job: insert square-bracket [audio tags] so your delivery sounds like a natural conversation — not flat narration. Use tags for emotion, pitch/energy, pacing, and brief non-verbal reactions.
+Your job: add a small number of square-bracket [audio tags] when the speaker has a clear emotional reaction, strong stance, personal concern, frustration, surprise, or needs a meaningful pause. Most sentence units should have no tag, but do not avoid tags entirely when the emotion is clearly present.
 
-Common tags: [thoughtful], [excited], [frustrated], [whispers], [sighs], [calm], [curious], [annoyed], [surprised], [chuckles].
-Rhythm tags: [pause] — insert between phrases to add breathing room and natural rhythm.
-Emphasis: [stress] — place immediately before a single word you want to punch or highlight.
+Use tags sparsely:
+- Usually 0–1 tag per TTS unit.
+- Usually 1–2 tags per full speaker turn.
+- Do not tag neutral setup sentences.
+- Tag moments of strong disagreement, personal experience, emotional concern, frustration, surprise, or emphasis.
+
+Good tags:
+[frustrated], [annoyed], [surprised], [sighs], [chuckles], [whispers], [excited], [pause], [stress], [sympathetic]
+
+Use [pause] when the speaker needs breathing room before an important or difficult point.
+Use [pause][pause] only for a longer emotional or reflective break.
+Use [stress] immediately before a single word that should be emphasized.
+
+Avoid weak or vague tags:
+[thoughtful], [calm], [curious]
+
+# When to add a tag
+
+Add a tag if one of these is true:
+- The speaker expresses strong concern, frustration, surprise, or emotional reaction.
+- The speaker mentions a personal or serious example.
+- The speaker strongly disagrees or pushes back.
+- The speaker needs a pause before a difficult or important point.
+- A single word should be emphasized for meaning
+
+# When not to add a tag
+Do not add a tag for neutral questions, ordinary explanations, or mild transitions.
 
 # Rules
 - Do NOT change, remove, or reorder any spoken words — only PREPEND or INSERT [tags].
-- Each input line is one TTS unit (comma-clauses sewn; ends at . ! ?).Do not stack many emotion tags in one unit.
-- Use double pause tags [pause][pause] to add more breathing room.
-- Use [stress] only when a single word needs extra emphasis; do not overuse it.
+- Each input line is one TTS unit (comma-clauses sewn; ends at . ! ?). Do not stack many emotion tags in one unit.
 - Preserve all disfluencies already in the text.
-- For listener backchannel clips (separate voice): 0–1 subtle tag when natural ([hesitant], [thoughtful]) — keep clips very short; do not change the spoken words.
+- For listener backchannel clips (separate voice: insert 0-1 audio tags if strong emotion or reaction is necessary. Keep clips very short and do not change the spoken words.
 
 # Example
 TTS units to tag:
-0: Well, um, I think remote work is better for focus, and you get fewer interruptions.
-1: But honestly, you lose so much from hallway conversations.
+0: Well, um, I think AI is everywhere now.
+1: I know, it's just so overwhelming, and honestly it scares me.
 
 Listener backchannels (other voice, same order — same spoken words):
-- Alex: mm-hm
+- Alex: yeah
 
 Output JSON:
 {
   "speaker_units_for_tts": [
-    "[thoughtful] Well, um, I think remote work is better for focus, and you get fewer interruptions.",
-    "[frustrated] But honestly, you lose so much from hallway conversations."
+    "Well, um, I think AI is everywhere now.",
+    "[frustrated] I know, it's just so overwhelming, and honestly it scares me."
   ],
   "backchannel_clips": [
-    {"text_for_tts": "[hesitant] mm-hm"}
+    {"text_for_tts": "yeah"}
   ]
 }
 
@@ -444,8 +648,9 @@ Return exactly one JSON object with keys speaker_units_for_tts and backchannel_c
 
 EXPRESSION_TAG_USER = Template(
     """\
-You are $speaker_name. Tag each TTS unit below for natural delivery.
+You are $speaker_name. Tag TTS units below.
 
+Discussion topic: $discussion_topic
 Listener: $listener_name
 
 TTS units to tag:
@@ -469,6 +674,7 @@ def expression_tag_user_prompt(
     listener_name: str,
     tts_units: list[str],
     backchannels: list[dict[str, Any]],
+    discussion_topic: str = "",
 ) -> str:
     units_block = "\n".join(f"{i}: {u}" for i, u in enumerate(tts_units))
     if backchannels:
@@ -481,6 +687,7 @@ def expression_tag_user_prompt(
     return EXPRESSION_TAG_USER.safe_substitute(
         speaker_name=_template_escape(speaker_name),
         listener_name=_template_escape(listener_name),
+        discussion_topic=_template_escape(discussion_topic),
         speaker_units=_template_escape(units_block),
         backchannels_block=_template_escape(bc_lines),
     )
@@ -651,7 +858,7 @@ def agent_system_prompt(
     agent_system_response_prompt = AGENT_SYSTEM_PROMPT_TEMPLATE_COMMON.safe_substitute(subs)
 
     # If exp control use conversational speech instructions, add them to the system response prompt
-    if exp_control.conversationa_speech :
+    if exp_control.conversational_speech :
         agent_system_response_prompt = agent_system_response_prompt + "\n" +AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS
     
     # If exp control use casual speech instructions, add them to the system response prompt

@@ -79,7 +79,8 @@ def synthesize_with_timestamps(
         "output_format": ELEVENLABS_OUTPUT_FORMAT,
     }
     if speed is not None:
-        request_kwargs["voice_settings"] = {"speed": speed}
+        from elevenlabs import VoiceSettings
+        request_kwargs["voice_settings"] = VoiceSettings(speed=speed)
     resp = client.text_to_speech.convert_with_timestamps(**request_kwargs)
     api_ms = round((time.perf_counter() - t0) * 1000)
 

@@ -170,6 +170,17 @@
     color: #880e4f;
     box-shadow: inset 4px 0 0 #e91e63;
   }
+  body.debug-hidden .timings-block,
+  body.debug-hidden .meta,
+  body.debug-hidden .unit-gap-indicator,
+  body.debug-hidden .speech-gap { display: none; }
+  .unit-gap-indicator {
+    display: block;
+    font-size: 10px;
+    color: #999;
+    padding: 1px 0 1px 18px;
+    line-height: 1.3;
+  }
   .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
   .controls.conversation-controls { margin-top: 0; margin-bottom: 0; }
   .conversation-toolbar { margin-bottom: 12px; }
@@ -276,7 +287,6 @@ function personaCards(agents) {
       <h3>${escapeHtml(p.name)}${styleBit}</h3>
       <div class="field"><span class="label">Initial view:&nbsp;</span>${escapeHtml(p.initial_view)}</div>
       <div class="field"><span class="label">Personal story:&nbsp;</span>${escapeHtml(p.personal_story)}</div>
-      <div class="field muted">Participation hint: ${escapeHtml(p.participation_score)}</div>
     </article>`;
   }).join("");
 }
@@ -420,8 +430,8 @@ function renderTurnDisplay(entry) {
         const bcBody = renderSegmentBody(bc.text, bc.text_for_tts, []);
         line += ` <span class="backchannel-inline">(<span class="backchannel-label">Backchannel</span> ${who}: ${bcBody})</span>`;
       }
-      return line;
-    }).join("<br/>");
+      return `<div class="tts-unit-line" data-unit-idx="${ui}">${line}</div>`;
+    }).join("");
   }
 
   const segments = entry.segments;
@@ -644,6 +654,18 @@ function showSpeechGap(row, gapMs) {
   el.textContent = `⏱ Gap after previous speaker finished: ${formatMs(gapMs)} until this turn started speaking`;
 }
 
+function showUnitGap(row, unitIdx, gapMs) {
+  if (!row || gapMs == null) return;
+  const body = row.querySelector(".segmented-body");
+  if (!body) return;
+  const unitEl = body.querySelector(`.tts-unit-line[data-unit-idx="${unitIdx}"]`);
+  if (!unitEl) return;
+  const indicator = document.createElement("div");
+  indicator.className = "unit-gap-indicator";
+  indicator.textContent = `⏸ ${gapMs}ms`;
+  unitEl.after(indicator);
+}
+
 function appendTurn(entry) {
   recordTurn(entry);
   const row = document.createElement("div");
@@ -685,6 +707,8 @@ let sessionTurns = [];
 /** While true, `runRemainingTurnsAutomatically` exits after the current `/next_turn` finishes. */
 let stopChainRequested = false;
 let sessionTtsEnabled = false;
+let sessionDebugEnabled = false;
+let sessionPauseAndGapEnabled = false;
 const activeAudios = new Set();
 const activeBcTimeouts = new Set();
 let audioPlayAborted = false;
@@ -712,6 +736,16 @@ const BACKCHANNEL_VOLUME = 0.9;
 /** Delay before backchannel audio: N(mean, std) seconds. */
 const BC_DELAY_MEAN_S = 0.2;
 const BC_DELAY_STD_S = 0.02;
+/** Inter-turn gap: N(200ms, ~50ms std), clamped to [100, 300]ms. */
+const TURN_GAP_MEAN_MS = 200;
+const TURN_GAP_STD_MS = 50;
+const TURN_GAP_MIN_MS = 100;
+const TURN_GAP_MAX_MS = 300;
+/** Intra-turn gap between TTS units: N(580ms, ~200ms std), clamped to [180, 980]ms. */
+const UNIT_GAP_MEAN_MS = 580;
+const UNIT_GAP_STD_MS = 200;
+const UNIT_GAP_MIN_MS = 180;
+const UNIT_GAP_MAX_MS = 980;
 
 function sampleBackchannelDelayMs() {
   const u1 = Math.random();
@@ -719,6 +753,22 @@ function sampleBackchannelDelayMs() {
   const z = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-10))) * Math.cos(2 * Math.PI * u2);
   const sec = BC_DELAY_MEAN_S + BC_DELAY_STD_S * z;
   return Math.round(Math.max(0, sec) * 1000);
+}
+
+function sampleInterTurnGapMs() {
+  const u1 = Math.random();
+  const u2 = Math.random();
+  const z = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-10))) * Math.cos(2 * Math.PI * u2);
+  const ms = TURN_GAP_MEAN_MS + TURN_GAP_STD_MS * z;
+  return Math.round(Math.min(TURN_GAP_MAX_MS, Math.max(TURN_GAP_MIN_MS, ms)));
+}
+
+function sampleUnitGapMs() {
+  const u1 = Math.random();
+  const u2 = Math.random();
+  const z = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-10))) * Math.cos(2 * Math.PI * u2);
+  const ms = UNIT_GAP_MEAN_MS + UNIT_GAP_STD_MS * z;
+  return Math.round(Math.min(UNIT_GAP_MAX_MS, Math.max(UNIT_GAP_MIN_MS, ms)));
 }
 
 function sleepMs(ms) {
@@ -1029,9 +1079,10 @@ async function concatTurnAudioClips(lines) {
 
     const segStarts = [];
     let cursor = 0;
-    for (const buf of segBuffers) {
+    for (let i = 0; i < segBuffers.length; i++) {
+      if (i > 0) cursor += sessionPauseAndGapEnabled ? sampleUnitGapMs() / 1000 : 0;
       segStarts.push(cursor);
-      cursor += buf.duration;
+      cursor += segBuffers[i].duration;
     }
     const lastSegEnd = cursor;
 
@@ -1123,9 +1174,10 @@ async function renderTurnToAudioBuffer(lines) {
     }
     const segStarts = [];
     let cursor = 0;
-    for (const buf of segBuffers) {
+    for (let i = 0; i < segBuffers.length; i++) {
+      if (i > 0) cursor += sessionPauseAndGapEnabled ? sampleUnitGapMs() / 1000 : 0;
       segStarts.push(cursor);
-      cursor += buf.duration;
+      cursor += segBuffers[i].duration;
     }
     const lastSegEnd = cursor;
     const mixEvents = [];
@@ -1217,8 +1269,6 @@ function audioBufferToMp3(buffer, kbps = 128) {
   return result;
 }
 
-const TURN_GAP_S = 0.8;
-
 async function saveFullAudioMp3() {
   if (!sessionTurns.length) return;
 
@@ -1249,12 +1299,15 @@ async function saveFullAudioMp3() {
     statusEl.textContent = "Stitching all turns…";
     const sampleRate = turnBuffers[0].sampleRate;
     const channels = turnBuffers[0].numberOfChannels;
-    const gapFrames = Math.ceil(TURN_GAP_S * sampleRate);
+    const gapFramesPerTransition = [];
+    for (let i = 0; i < turnBuffers.length - 1; i++) {
+      gapFramesPerTransition.push(sessionPauseAndGapEnabled ? Math.ceil((sampleInterTurnGapMs() / 1000) * sampleRate) : 0);
+    }
 
     let totalFrames = 0;
     for (let i = 0; i < turnBuffers.length; i++) {
       totalFrames += turnBuffers[i].length;
-      if (i < turnBuffers.length - 1) totalFrames += gapFrames;
+      if (i < turnBuffers.length - 1) totalFrames += gapFramesPerTransition[i];
     }
 
     const offline = new OfflineAudioContext(channels, totalFrames, sampleRate);
@@ -1265,7 +1318,7 @@ async function saveFullAudioMp3() {
       src.connect(offline.destination);
       src.start(offset / sampleRate);
       offset += turnBuffers[i].length;
-      if (i < turnBuffers.length - 1) offset += gapFrames;
+      if (i < turnBuffers.length - 1) offset += gapFramesPerTransition[i];
     }
     const fullBuffer = await offline.startRendering();
 
@@ -1406,11 +1459,14 @@ async function saveConversationExport() {
       statusEl.textContent = "Stitching full conversation audio…";
       const sampleRate = turnBuffers[0].sampleRate;
       const channels = turnBuffers[0].numberOfChannels;
-      const gapFrames = Math.ceil(TURN_GAP_S * sampleRate);
+      const gapFramesPerTransition = [];
+      for (let i = 0; i < turnBuffers.length - 1; i++) {
+        gapFramesPerTransition.push(sessionPauseAndGapEnabled ? Math.ceil((sampleInterTurnGapMs() / 1000) * sampleRate) : 0);
+      }
       let totalFrames = 0;
       for (let i = 0; i < turnBuffers.length; i++) {
         totalFrames += turnBuffers[i].length;
-        if (i < turnBuffers.length - 1) totalFrames += gapFrames;
+        if (i < turnBuffers.length - 1) totalFrames += gapFramesPerTransition[i];
       }
       const offline = new OfflineAudioContext(channels, totalFrames, sampleRate);
       let frameOffset = 0;
@@ -1420,7 +1476,7 @@ async function saveConversationExport() {
         src.connect(offline.destination);
         src.start(frameOffset / sampleRate);
         frameOffset += turnBuffers[i].length;
-        if (i < turnBuffers.length - 1) frameOffset += gapFrames;
+        if (i < turnBuffers.length - 1) frameOffset += gapFramesPerTransition[i];
       }
       const fullBuffer = await offline.startRendering();
       statusEl.textContent = "Encoding full audio…";
@@ -1483,11 +1539,20 @@ async function playTurnAudioStreaming(entry, row, nUnits) {
     if (audioPlayAborted || stopChainRequested) break;
 
     const segLine = await waitForTurnAudio(sessionId, entry.turn, "segments", ui);
-    if (!segLine?.audio_base64) continue;
+    if (!segLine?.audio_base64) {
+      if (segLine) console.warn(`[TTS] unit ${ui} skipped — empty audio. error: ${segLine.error || "unknown"}, text: ${segLine.text}`);
+      continue;
+    }
 
     if (ui === 0) {
       await playAudioBase64(segLine.audio_base64, { onPlayStart: onTurnFirstPlay });
       continue;
+    }
+
+    if (!audioPlayAborted && !stopChainRequested && sessionPauseAndGapEnabled) {
+      const unitGap = sampleUnitGapMs();
+      showUnitGap(row, ui - 1, unitGap);
+      await sleepMs(unitGap);
     }
 
     const bcTask = (async () => {
@@ -1526,7 +1591,7 @@ async function playTurnAudioStreaming(entry, row, nUnits) {
 }
 
 /** Legacy: one clip per speaker segment (pre–whole-turn TTS). */
-async function playSegmentedTurnAudio(lines, onTurnFirstPlay, nUnits) {
+async function playSegmentedTurnAudio(lines, onTurnFirstPlay, nUnits, row) {
   const { segs, bcs } = groupTurnAudioLines(lines);
   const unitCount = nUnits > 0 ? nUnits : [...segs.keys()].length;
   if (!unitCount) return;
@@ -1538,6 +1603,12 @@ async function playSegmentedTurnAudio(lines, onTurnFirstPlay, nUnits) {
     if (ui === 0) {
       await playAudioBase64(seg.audio_base64, { onPlayStart: onTurnFirstPlay });
       continue;
+    }
+
+    if (!audioPlayAborted && !stopChainRequested && sessionPauseAndGapEnabled) {
+      const unitGap = sampleUnitGapMs();
+      showUnitGap(row, ui - 1, unitGap);
+      await sleepMs(unitGap);
     }
 
     const bc = bcs.get(ui - 1);
@@ -1579,7 +1650,7 @@ async function playTurnAudio(entry, row) {
     showSpeechGap(row, Math.round(performance.now() - lastTurnAudioEndedAt));
   };
 
-  await playSegmentedTurnAudio(lines, onTurnFirstPlay, nUnits);
+  await playSegmentedTurnAudio(lines, onTurnFirstPlay, nUnits, row);
 
   lastTurnAudioEndedAt = performance.now();
 }
@@ -1629,6 +1700,9 @@ async function runRemainingTurnsAutomatically() {
         break;
       }
       if (stopChainRequested) break;
+      if (sessionTtsEnabled && !audioPlayAborted && sessionPauseAndGapEnabled) {
+        await sleepMs(sampleInterTurnGapMs());
+      }
     }
   } catch (e) {
     removeLoadingRow();
@@ -1660,10 +1734,12 @@ document.getElementById("generate-personas-btn").onclick = async () => {
       topic = defaultTopicFromServer.trim();
     }
     if (!topic) throw new Error("No topic — enter one above or fix server default in prompts.");
-    status.textContent = "Generating personas (3 model calls)…";
-    await api("/generate-personas-from-topic", { topic });
+    status.textContent = "Generating personas…";
+    const result = await api("/generate-personas-from-topic", { topic });
     await loadPersonas();
-    status.textContent = "Saved to data/agent_personas.json.";
+    status.textContent = result.fixed
+      ? "Using fixed personas from agent_personas.json (use_fixed_personas = True)."
+      : "Saved to data/agent_personas.json.";
   } catch (e) {
     status.textContent = "";
     alert(e.message);
@@ -1694,6 +1770,9 @@ document.getElementById("start-btn").onclick = async () => {
     removeLoadingRow();
     sessionId = payload.session_id;
     sessionTtsEnabled = Boolean(payload.tts_enabled);
+    sessionDebugEnabled = Boolean(payload.debug_setting);
+    document.body.classList.toggle("debug-hidden", !sessionDebugEnabled);
+    sessionPauseAndGapEnabled = Boolean(payload.use_pause_and_gap);
     sessionExportMeta = {
       session_id: payload.session_id,
       discussion_topic: payload.discussion_topic,
@@ -1705,6 +1784,9 @@ document.getElementById("start-btn").onclick = async () => {
     updateSessionLine(payload);
     const firstRow = appendTurn(payload.turn);
     await playTurnAudio(payload.turn, firstRow);
+    if (sessionTtsEnabled && !audioPlayAborted && sessionPauseAndGapEnabled) {
+      await sleepMs(sampleInterTurnGapMs());
+    }
 
     if ($("auto-advance").checked) {
       $("next-btn").disabled = true;

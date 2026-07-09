@@ -41,15 +41,15 @@ PERSONA_AUTHORING_MODEL = "gpt-4o"
 UTTERANCE_SEGMENT_MODEL = "gpt-4o-mini"
 BACKCHANNEL_INSERT_MODEL = "gpt-4o"
 DISFLUENCY_INSERT_MODEL = "gpt-4o"
-EXPRESSION_TAG_MODEL = "gpt-4o-mini"
+EXPRESSION_TAG_MODEL = "gpt-4o"
 # input_backchannels = 0 # Manually control the number of backchannels inserted
-DISFLUENCY_RATE_PER_WORD = float(os.getenv("DISFLUENCY_RATE_PER_WORD", "0.08"))
+DISFLUENCY_RATE_PER_WORD = float(os.getenv("DISFLUENCY_RATE_PER_WORD", "0.09"))
 DISFLUENCY_TYPE_WEIGHTS: dict[str, float] = {
-    "filled_pause": 0.36,
-    "discourse_marker": 0.28,
-    "prolongation": 0.17,
+    "filled_pause": 0.31,
+    "discourse_marker": 0.24,
+    "prolongation": 0.28,
     "self_repair": 0,
-    "repetition": 0.18,
+    "repetition": 0.16,
 }
 VALID_DISFLUENCY_TYPES = frozenset(DISFLUENCY_TYPE_WEIGHTS)
 
@@ -504,6 +504,7 @@ def _apply_expression_tags(
     unit_micro_indices: list[list[int]],
     segments_for_tts: list[str],
     backchannels: list[dict[str, Any]],
+    discussion_topic: str = "",
 ) -> tuple[list[str], list[str], list[dict[str, Any]], list[dict[str, Any]]]:
     """Tag TTS units for Eleven v3; split back to micro segments for display."""
     if not tts_units:
@@ -524,23 +525,38 @@ def _apply_expression_tags(
                 listener_name=listener_name,
                 tts_units=tts_units,
                 backchannels=backchannels,
+                discussion_topic=discussion_topic,
             ),
         )
-    except Exception:
+        print(f"[EXPRESSION TAGS] LLM returned keys: {list(data.keys())}")
+    except Exception as exc:
+        print(f"[EXPRESSION TAGS] EXCEPTION during LLM call: {exc}")
         return fallback_units, list(segments_for_tts), [dict(b) for b in backchannels], []
 
     raw_units = data.get("speaker_units_for_tts") or data.get("speaker_segments")
+    print(f"[EXPRESSION TAGS] raw_units type={type(raw_units).__name__}, "
+          f"len={len(raw_units) if isinstance(raw_units, list) else 'N/A'}, "
+          f"expected len={len(tts_units)}")
+    if isinstance(raw_units, list):
+        for i, ru in enumerate(raw_units):
+            print(f"[EXPRESSION TAGS]   unit[{i}] = {str(ru)[:120]}")
+
     units_expressive: list[str] = []
     if isinstance(raw_units, list) and len(raw_units) == len(tts_units):
-        for plain, raw in zip(tts_units, raw_units):
+        for i, (plain, raw) in enumerate(zip(tts_units, raw_units)):
             tagged = str(raw).strip()
-            if tagged and _normalize_turn_plain(
-                tts.strip_audio_tags(tagged)
-            ) == _normalize_turn_plain(plain):
+            stripped = _normalize_turn_plain(tts.strip_audio_tags(tagged))
+            original = _normalize_turn_plain(plain)
+            if tagged and stripped == original:
                 units_expressive.append(tagged)
+                if tagged != plain:
+                    print(f"[EXPRESSION TAGS]   unit[{i}] ACCEPTED (has tags)")
             else:
                 units_expressive.append(plain)
+                print(f"[EXPRESSION TAGS]   unit[{i}] REJECTED: "
+                      f"stripped={stripped!r} != original={original!r}")
     else:
+        print(f"[EXPRESSION TAGS] LENGTH MISMATCH or bad type — using fallback")
         units_expressive = fallback_units
 
     segments_expressive = _expressive_units_to_micro_segments(
@@ -610,6 +626,7 @@ def _segment_utterance_for_display(
     speaker_name: str,
     listener_name: str,
     utterance: str,
+    discussion_topic: str = "",
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """Segment + backchannels + disfluencies. Returns (display dict, partial stage timings)."""
     inner = utterance.strip()
@@ -642,6 +659,9 @@ def _segment_utterance_for_display(
     t0 = time.perf_counter()
     segments = _split_utterance_segments(client, speaker_name, utterance)
     segment_ms = _elapsed_ms(t0)
+    print(f"\n[OUTPUT 2 - SEGMENT SPLIT] {speaker_name} ({segment_ms}ms) — {len(segments)} segments")
+    for i, s in enumerate(segments):
+        print(f"  [{i}] {s}")
 
     t0 = time.perf_counter()
     disfluencies, segments_for_tts, disfluency_count = _choose_disfluencies(
@@ -650,6 +670,10 @@ def _segment_utterance_for_display(
         segments=segments,
     )
     disfluency_ms = _elapsed_ms(t0)
+    print(f"\n[OUTPUT 3 - DISFLUENCY] {speaker_name} ({disfluency_ms}ms) — {disfluency_count} inserted")
+    for i, s in enumerate(segments_for_tts):
+        marker = " *" if s != segments[i] else ""
+        print(f"  [{i}]{marker} {s}")
 
     tts_units, unit_micro_indices = tts.group_segments_for_tts_units(segments_for_tts)
 
@@ -662,6 +686,9 @@ def _segment_utterance_for_display(
         unit_micro_indices=unit_micro_indices,
     )
     backchannel_ms = _elapsed_ms(t0)
+    print(f"\n[OUTPUT 4 - BACKCHANNELS] {speaker_name} ({backchannel_ms}ms) — {len(backchannels)}/{backchannel_max} inserted")
+    for bc in backchannels:
+        print(f"  @ unit {bc.get('tts_unit_index', '?')}: {bc.get('listener')} \"{bc.get('text')}\"")
 
     t0 = time.perf_counter()
     units_expressive, segments_expressive, backchannels, expressions = _apply_expression_tags(
@@ -672,8 +699,13 @@ def _segment_utterance_for_display(
         unit_micro_indices=unit_micro_indices,
         segments_for_tts=segments_for_tts,
         backchannels=backchannels,
+        discussion_topic=discussion_topic,
     )
     expression_ms = _elapsed_ms(t0)
+    print(f"\n[OUTPUT 5 - EMOTION TAGS] {speaker_name} ({expression_ms}ms)")
+    for i, (plain, expressive) in enumerate(zip(tts_units, units_expressive)):
+        marker = " *" if expressive != plain else ""
+        print(f"  [{i}]{marker} {expressive}")
 
     segmented_dialogue = _format_tts_unit_lines_with_backchannels(
         speaker_name, listener_name, tts_units, backchannels
@@ -749,7 +781,7 @@ def _synthesize_with_retry(
     text: str,
     voice_id: str,
     speed: float,
-    retries: int = 2,
+    retries: int = 3,
 ) -> dict[str, Any]:
     last_err: str | None = None
     t0 = time.perf_counter()
@@ -763,11 +795,15 @@ def _synthesize_with_retry(
             if result.get("audio_base64"):
                 return result
             last_err = "empty audio response"
+            print(f"[TTS RETRY] attempt={attempt + 1}/{retries} empty audio — text={text[:80]!r}")
         except Exception as exc:
             last_err = str(exc)
+            print(f"[TTS RETRY] attempt={attempt + 1}/{retries} exception={last_err!r} — text={text[:80]!r}")
+        if attempt + 1 < retries:
+            time.sleep(0.5 * (attempt + 1))
     total_ms = _elapsed_ms(t0)
-    print(f"[TTS FAIL] text={text[:80]!r}... voice={voice_id} "
-          f"attempts={retries} elapsed={total_ms}ms error={last_err}")
+    print(f"[TTS FAIL] all {retries} attempts failed — text={text!r} voice={voice_id} "
+          f"elapsed={total_ms}ms error={last_err}")
     return {
         "audio_base64": "",
         "duration_s": 0.0,
@@ -826,6 +862,9 @@ def _synthesize_turn_audio(
                 )
             )
 
+    # Build jobs: segment units in ascending order first, then backchannels in ascending order.
+    # Processed sequentially so unit 0 is always synthesized before unit 1, and the current
+    # turn fully completes before the next turn starts (tts_pool max_workers=1).
     jobs: list[tuple[str, int, str, str, str, float]] = []
     for ui, unit in enumerate(tts_units):
         text = str(unit)
@@ -857,23 +896,18 @@ def _synthesize_turn_audio(
             )
         )
 
+    # Submit jobs in priority order (unit 0 first, ascending) into a pool of 4.
+    # ThreadPoolExecutor's internal queue is FIFO, so earlier-submitted jobs are
+    # always picked up first when a worker slot frees up.
+    # tts_pool (max_workers=1) ensures turn N fully completes before turn N+1 starts.
+    _MAX_CONCURRENT_TTS = 4
     t0 = time.perf_counter()
-    workers = min(3, max(1, len(jobs)))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        future_map = {
-            pool.submit(
-                _synthesize_with_retry,
-                text=text,
-                voice_id=voice_id,
-                speed=speed,
-            ): (
-                kind,
-                idx,
-                name,
-                text,
-            )
-            for kind, idx, text, name, voice_id, speed in jobs
-        }
+    with ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_TTS) as pool:
+        future_map = {}
+        for job in jobs:
+            kind, idx, text, name, voice_id, speed = job
+            fut = pool.submit(_synthesize_with_retry, text=text, voice_id=voice_id, speed=speed)
+            future_map[fut] = (kind, idx, name, text)
         for fut in as_completed(future_map):
             kind, idx, name, text = future_map[fut]
             synth = fut.result()
@@ -1052,7 +1086,12 @@ def _generate_turn_text(
             pref = speaker["name"] + ":"
             if lt.lower().startswith(pref.lower()):
                 lt = lt[len(pref) :].lstrip()
-            return lt[:2000], total_ms
+            text = lt[:2000]
+            print(f"\n{'='*60}")
+            print(f"[OUTPUT 1 - RESPONSE] {speaker['name']} ({total_ms}ms)")
+            print(f"{'='*60}")
+            print(text)
+            return text, total_ms
         finish = getattr(choice, "finish_reason", None)
         last_detail = f"empty model reply (finish_reason={finish})"
         if attempt + 1 < max_attempts:
@@ -1147,7 +1186,7 @@ class SessionPipeline:
         self.prefetch_turn_no: int | None = None
         self.error: str | None = None
         self.cancelled = False
-        self.tts_pool = ThreadPoolExecutor(max_workers=2)
+        self.tts_pool = ThreadPoolExecutor(max_workers=1)
         self._build_executor = ThreadPoolExecutor(max_workers=1)
         self._worker: threading.Thread | None = None
         client = _client()
@@ -1179,7 +1218,8 @@ class SessionPipeline:
         speaker = self.sess["agents"][speaker_idx]
         partner = self.sess["agents"][1 - speaker_idx]
         return _segment_utterance_for_display(
-            self._client, speaker["name"], partner["name"], text
+            self._client, speaker["name"], partner["name"], text,
+            discussion_topic=str(self.sess.get("discussion_topic", "")),
         )
 
     def _build_turn(
@@ -1419,7 +1459,8 @@ def _reply_for_speaker(
     text = lt[:2000]
 
     display, stage_partial = _segment_utterance_for_display(
-        client, speaker["name"], partner["name"], text
+        client, speaker["name"], partner["name"], text,
+        discussion_topic=discussion_topic,
     )
 
     audio_lines: list[dict[str, Any]] = []
@@ -1518,7 +1559,12 @@ def generate_personas_from_topic(body: GeneratePersonasBody):
     1) One model call → two distinct second-person initial_view strings (JSON).
     2) Two model calls → personal_story per agent from topic + that agent’s view.
     Persists result to data/agent_personas.json (names and other metadata preserved).
+    If exp_control.use_fixed_personas is True, skips LLM generation and returns the current personas as-is.
     """
+    if exp_control.use_fixed_personas:
+        doc = personas_document()
+        return {"ok": True, "path": str(PERSONAS_PATH.relative_to(ROOT)), "personas": doc, "fixed": True}
+
     client = _client()
     if client is None:
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not set.")
@@ -1623,6 +1669,8 @@ def start_session(body: StartBody):
         "max_turns": MAX_TURNS,
         "discussion_topic": discussion_topic,
         "tts_enabled": tts_enabled,
+        "debug_setting": bool(exp_control.debug_setting),
+        "use_pause_and_gap": bool(exp_control.use_pause_and_gap),
         "personas": {"agents": agents},
         "turn": turn_payload,
     }
