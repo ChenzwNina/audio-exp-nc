@@ -47,122 +47,6 @@ Why it is good: here Johan's rumor is first brought up and it provides just enou
     """
 )
 
-# AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS = """\
-# Generate dialogue in a spoken, interactional, context-specific, and non-abstract register rather than a written, informational register. The style should follow three linguistic dimensions of spoken discourse:
-# Dimension 1: The response should use an involved and interactive style. The speaker should directly respond to the other person's previous point, ask follow-up questions, show agreement or disagreement, and keep the conversation moving rather than giving a standalone explanation.
-# Preference:
-# 1.1 Use private verbs to express personal stance, thought, or feeling.
-# Prefer common spoken verbs such as "think," "feel," "guess," "know," "wonder," and "mean."
-# Bad: "I conclude that platforms should be more accountable."
-# Good: "I think platforms should be more accountable."
-# Good: "I mean, that part really worries me."
-# 1.2 Use THAT deletion after verbs like "think," "guess," "feel," and "know."
-# Bad: "I think that it could be a problem."
-# Good: "I think it could be a problem."
-# Bad: "I feel that platforms ignore this too often."
-# Good: "I feel like platforms ignore this too often."
-# 1.3 Use contractions frequently.
-# Bad: "I do not think it is fair."
-# Good: "I don't think it's fair."
-# Bad: "That is not something users can fix alone."
-# Good: "That's not something users can fix alone."
-# 1.4 Use present-tense verbs when expressing current opinions, reactions, or general points.
-# Bad: "This issue created serious concerns for users."
-# Good: "This issue makes people nervous."
-# Good: "It feels like platforms wait until things get really bad."
-# 1.5 Use second-person pronouns to make the dialogue feel interactive.
-# Bad: "One may feel unsafe when harassment continues."
-# Good: "You can feel really unsafe when that keeps happening."
-# Good: "You know how fast this stuff spreads."
-# 1.6 Use DO as a pro-verb for short conversational responses.
-# Bad: "I also think the same thing."
-# Good: "Yeah, I do too."
-# Bad: "Some users do not report harmful content."
-# Good: "Some people don't, though."
-# Bad: "That argument makes sense."
-# Good: "It does, but only up to a point."
-
-# Dimension 2: The response should sound like the speaker is relying on shared conversational context, not spelling everything out. Use short, context-dependent references when the meaning is clear from the conversation.
-# Preference:
-# 2.1 Use demonstratives and pronouns: "this," "that," "it," "these things," "that part"
-# 2.2 Use vague everyday nouns: "stuff," "things," "something," "that kind of thing"
-# 2.3 Use time/place references: "now," "then," "earlier," "there," "online," "in that moment"
-# 2.4 Use short clauses instead of long noun phrases or embedded relative clauses
-
-# Avoidance:
-# 2.5 Avoid WH relative clauses on object positions.
-# Bad: "The content which users post online can create serious harm."
-# Good: "The stuff people post online can really hurt people."
-# Good: "Some of that can get harmful fast."
-# 2.6 Avoid pied-piping constructions.
-# Bad: "The issue about which we are arguing is platform responsibility."
-# Good: "The thing we're arguing about is whether platforms should step in."
-# Good: "That's what we're really talking about."
-# 2.7 Avoid WH relative clauses on subject positions.
-# Bad: "Users who experience harassment often receive little support."
-# Good: "People get harassed, and sometimes nobody helps."
-# Good: "Some people go through that and feel totally stuck."
-# 2.8 Avoid heavy phrasal coordination.
-# Bad: "Rules, policies, enforcement systems, and moderation procedures all need improvement."
-# Good: "The rules need to be better."
-# Good: "They need a better way to handle this stuff."
-# 2.9 Avoid nominalizations when a simple verb phrase works.
-# Bad: "The implementation of stricter moderation could reduce harmful content."
-# Good: "If they moderate more strictly, less harmful stuff might spread."
-# Bad: "The regulation of user behavior is difficult."
-# Good: "It's hard to control what people post."
-
-# Dimension 3: The response should sound concrete, direct, and conversational. Avoid abstract, compressed, or academic sentence structures. 
-# Preference:
-# 3.1 Use active clauses.
-# 3.2 Use everyday words.
-# 3.3 Use concrete examples.
-
-# Avoidance:
-# 3.4 Avoid formal conjuncts, such as "therefore," "however," "furthermore," "moreover," "nevertheless," and "consequently."
-# Bad: "Therefore, platforms should be held accountable."
-# Good: "So yeah, platforms should probably take some responsibility."
-# Bad: "However, this may limit free expression."
-# Good: "But that could also make people afraid to post."
-# 3.5 Avoid agentless passives.
-# Bad: "The harmful post was removed too late."
-# Good: "The platform took the harmful post down too late."
-# Bad: "A decision was made to restrict the account."
-# Good: "They decided to restrict the account."
-# 3.6 Avoid past participial clauses.
-# Bad: "Targeted by trolls for weeks, my friend eventually stopped posting."
-# Good: "My friend got targeted by trolls for weeks, and eventually she just stopped posting."
-# Bad: "Built around strict moderation, the system may discourage users."
-# Good: "If the system is too strict, people might stop posting."
-# 3.7 Avoid by-passives.
-# Bad: "The content was removed by the platform."
-# Good: "The platform removed the content."
-# Bad: "The rule was changed by the company."
-# Good: "The company changed the rule."
-# 3.8 Avoid past participial WHIZ deletions.
-# Bad: "The solution proposed by the company does not solve the problem."
-# Good: "The company's solution doesn't really fix the problem."
-# Bad: "The content flagged by users should be reviewed faster."
-# Good: "If users flag something, the platform should review it faster."
-
-# Dimension 4: choosing words that are typical of everyday spoken conversation rather than academic or formal written prose.
-# Bad: That is a substantial concern.
-# Good: Yeah, that's a big deal.
-
-# Bad: The situation is highly problematic.
-# Good: That's kind of nuts.
-
-# Bad: This could produce negative consequences.
-# Good: This could get really messy.
-
-# Bad: Strict rules may stifle creativity.
-# Good: Too many rules could kind of kill the creativity.
-
-# Bad: The platform failed to address the issue.
-# Good: The platform just didn't deal with it.
-
-# """
-# bench way of prompting
 AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS = """\
 Generate dialogue in a spoken, interactional, context-specific, and non-abstract register rather than a written, informational register. The style should follow three linguistic dimensions of spoken discourse:
 Dimension 1: The response should use an involved and interactive style. The speaker should directly respond to the other person's previous point, ask follow-up questions, show agreement or disagreement, and keep the conversation moving rather than giving a standalone explanation.
@@ -277,16 +161,132 @@ Good: Too many rules could kind of kill the creativity.
 Bad: The platform failed to address the issue.
 Good: The platform just didn't deal with it.
 
-# Natural Guidelines
-- Include natural speech patterns:
-    - Disfluencies: "um", "uh", "you know", "like", "I mean"
-    - Restarts: "Can you [pause] sorry, I meant to ask, can you help me with..."
-    - Filler words and pauses: "So, um, I was wondering if you could, you know, help me out"
-    - Use em dashes (---) and [pause] to signify pauses: "I was trying to---wait, let me
-    think [pause]" or "The issue started [pause] maybe three days ago?"
-- Don’t worry about perfect grammar or complete sentences - speak naturally
+# """
+# bench way of prompting
+# AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS = """\
+# Generate dialogue in a spoken, interactional, context-specific, and non-abstract register rather than a written, informational register. The style should follow three linguistic dimensions of spoken discourse:
+# Dimension 1: The response should use an involved and interactive style. The speaker should directly respond to the other person's previous point, ask follow-up questions, show agreement or disagreement, and keep the conversation moving rather than giving a standalone explanation.
+# Preference:
+# 1.1 Use private verbs to express personal stance, thought, or feeling.
+# Prefer common spoken verbs such as "think," "feel," "guess," "know," "wonder," and "mean."
+# Bad: "I conclude that platforms should be more accountable."
+# Good: "I think platforms should be more accountable."
+# Good: "I mean, that part really worries me."
+# 1.2 Use THAT deletion after verbs like "think," "guess," "feel," and "know."
+# Bad: "I think that it could be a problem."
+# Good: "I think it could be a problem."
+# Bad: "I feel that platforms ignore this too often."
+# Good: "I feel like platforms ignore this too often."
+# 1.3 Use contractions frequently.
+# Bad: "I do not think it is fair."
+# Good: "I don't think it's fair."
+# Bad: "That is not something users can fix alone."
+# Good: "That's not something users can fix alone."
+# 1.4 Use present-tense verbs when expressing current opinions, reactions, or general points.
+# Bad: "This issue created serious concerns for users."
+# Good: "This issue makes people nervous."
+# Good: "It feels like platforms wait until things get really bad."
+# 1.5 Use second-person pronouns to make the dialogue feel interactive.
+# Bad: "One may feel unsafe when harassment continues."
+# Good: "You can feel really unsafe when that keeps happening."
+# Good: "You know how fast this stuff spreads."
+# 1.6 Use DO as a pro-verb for short conversational responses.
+# Bad: "I also think the same thing."
+# Good: "Yeah, I do too."
+# Bad: "Some users do not report harmful content."
+# Good: "Some people don't, though."
+# Bad: "That argument makes sense."
+# Good: "It does, but only up to a point."
 
-"""
+# Dimension 2: The response should sound like the speaker is relying on shared conversational context, not spelling everything out. Use short, context-dependent references when the meaning is clear from the conversation.
+# Preference:
+# 2.1 Use demonstratives and pronouns: "this," "that," "it," "these things," "that part"
+# 2.2 Use vague everyday nouns: "stuff," "things," "something," "that kind of thing"
+# 2.3 Use time/place references: "now," "then," "earlier," "there," "online," "in that moment"
+# 2.4 Use short clauses instead of long noun phrases or embedded relative clauses
+
+# Avoidance:
+# 2.5 Avoid WH relative clauses on object positions.
+# Bad: "The content which users post online can create serious harm."
+# Good: "The stuff people post online can really hurt people."
+# Good: "Some of that can get harmful fast."
+# 2.6 Avoid pied-piping constructions.
+# Bad: "The issue about which we are arguing is platform responsibility."
+# Good: "The thing we're arguing about is whether platforms should step in."
+# Good: "That's what we're really talking about."
+# 2.7 Avoid WH relative clauses on subject positions.
+# Bad: "Users who experience harassment often receive little support."
+# Good: "People get harassed, and sometimes nobody helps."
+# Good: "Some people go through that and feel totally stuck."
+# 2.8 Avoid heavy phrasal coordination.
+# Bad: "Rules, policies, enforcement systems, and moderation procedures all need improvement."
+# Good: "The rules need to be better."
+# Good: "They need a better way to handle this stuff."
+# 2.9 Avoid nominalizations when a simple verb phrase works.
+# Bad: "The implementation of stricter moderation could reduce harmful content."
+# Good: "If they moderate more strictly, less harmful stuff might spread."
+# Bad: "The regulation of user behavior is difficult."
+# Good: "It's hard to control what people post."
+
+# Dimension 3: The response should sound concrete, direct, and conversational. Avoid abstract, compressed, or academic sentence structures. 
+# Preference:
+# 3.1 Use active clauses.
+# 3.2 Use everyday words.
+# 3.3 Use concrete examples.
+
+# Avoidance:
+# 3.4 Avoid formal conjuncts, such as "therefore," "however," "furthermore," "moreover," "nevertheless," and "consequently."
+# Bad: "Therefore, platforms should be held accountable."
+# Good: "So yeah, platforms should probably take some responsibility."
+# Bad: "However, this may limit free expression."
+# Good: "But that could also make people afraid to post."
+# 3.5 Avoid agentless passives.
+# Bad: "The harmful post was removed too late."
+# Good: "The platform took the harmful post down too late."
+# Bad: "A decision was made to restrict the account."
+# Good: "They decided to restrict the account."
+# 3.6 Avoid past participial clauses.
+# Bad: "Targeted by trolls for weeks, my friend eventually stopped posting."
+# Good: "My friend got targeted by trolls for weeks, and eventually she just stopped posting."
+# Bad: "Built around strict moderation, the system may discourage users."
+# Good: "If the system is too strict, people might stop posting."
+# 3.7 Avoid by-passives.
+# Bad: "The content was removed by the platform."
+# Good: "The platform removed the content."
+# Bad: "The rule was changed by the company."
+# Good: "The company changed the rule."
+# 3.8 Avoid past participial WHIZ deletions.
+# Bad: "The solution proposed by the company does not solve the problem."
+# Good: "The company's solution doesn't really fix the problem."
+# Bad: "The content flagged by users should be reviewed faster."
+# Good: "If users flag something, the platform should review it faster."
+
+# Dimension 4: choosing words that are typical of everyday spoken conversation rather than academic or formal written prose.
+# Bad: That is a substantial concern.
+# Good: Yeah, that's a big deal.
+
+# Bad: The situation is highly problematic.
+# Good: That's kind of nuts.
+
+# Bad: This could produce negative consequences.
+# Good: This could get really messy.
+
+# Bad: Strict rules may stifle creativity.
+# Good: Too many rules could kind of kill the creativity.
+
+# Bad: The platform failed to address the issue.
+# Good: The platform just didn't deal with it.
+
+# # Natural Guidelines
+# - Include natural speech patterns:
+#     - Disfluencies: "um", "uh", "you know", "like", "I mean"
+#     - Restarts: "Can you [pause] sorry, I meant to ask, can you help me with..."
+#     - Filler words and pauses: "So, um, I was wondering if you could, you know, help me out"
+#     - Use em dashes (---) and [pause] to signify pauses: "I was trying to---wait, let me
+#     think [pause]" or "The issue started [pause] maybe three days ago?"
+# - Don’t worry about perfect grammar or complete sentences - speak naturally
+
+# """
 # AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS = """\
 # - The generated response should be in oral discourse. Use several of these features naturally in each turn:
 # 1. The generated response should be more involved, and more non-informational focus by using MORE following linguistics patterns:
