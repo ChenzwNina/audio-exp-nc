@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: audio-exp-nc
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # Sessions live in process memory, so this must stay a single worker.
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /key-config
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7

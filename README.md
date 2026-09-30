@@ -196,7 +196,19 @@ Relevant code: `SessionPipeline.build_first_turn()`, `SessionPipeline._worker_lo
 
 ## Deploying publicly
 
-- Serve over **HTTPS**; keys travel in request headers.
+### Render
+
+`render.yaml` defines a free Python web service.
+
+1. Sign in at [render.com](https://render.com) with GitHub.
+2. **New → Blueprint**, pick this repository, and apply. Render reads `render.yaml`, installs `requirements.txt`, and starts `uvicorn` on its `$PORT`.
+3. Open the `https://<name>.onrender.com` URL Render gives you. Every push to `main` redeploys.
+
+Do not add `ALLOW_SERVER_KEYS` or API keys as Render environment variables; visitors enter their own. On the free plan the service sleeps after about 15 minutes idle, so the first visit afterwards takes up to a minute to wake. Keep a single instance and worker, because sessions are held in memory.
+
+### Notes
+
+- Serve over **HTTPS**; keys travel in request headers. Render provides HTTPS.
 - Run without `--reload` and without `ALLOW_SERVER_KEYS`.
 - `data/agent_personas.json` is shared by all visitors, so simultaneous users overwrite each other's generated profiles.
 - There is no rate limiting.
@@ -215,6 +227,7 @@ audio-exp-nc/
 ├── data/
 │   └── agent_personas.json
 ├── requirements.txt
+├── render.yaml         # Render deployment
 ├── .env.example
 └── README.md
 ```
