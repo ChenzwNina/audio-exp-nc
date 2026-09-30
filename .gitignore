@@ -1,2 +1,13 @@
 __pycache__/
 *.pyc
+switchboard/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local environment
+.venv/
+venv/
+.DS_Store

@@ -6,6 +6,7 @@ Personas: data/agent_personas.json — LLM wording: backend/prompts.py
 
 from __future__ import annotations
 
+import contextvars
 import json
 import math
 import os
@@ -17,13 +18,14 @@ import uuid
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from openai import OpenAI
+import httpx
+from openai import AuthenticationError, OpenAI
 from pydantic import BaseModel, Field
 
 from backend import exp_control, prompts, tts
@@ -53,7 +55,31 @@ DISFLUENCY_TYPE_WEIGHTS: dict[str, float] = {
 }
 VALID_DISFLUENCY_TYPES = frozenset(DISFLUENCY_TYPE_WEIGHTS)
 
+class _RequestApiKeysMiddleware:
+    """Bind X-OpenAI-Key / X-ElevenLabs-Key headers to the current request."""
+
+    def __init__(self, app: Any):
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1").strip()
+            for k, v in scope.get("headers") or []
+        }
+        openai_token = _request_openai_key.set(headers.get("x-openai-key") or None)
+        eleven_token = _request_elevenlabs_key.set(headers.get("x-elevenlabs-key") or None)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _request_openai_key.reset(openai_token)
+            _request_elevenlabs_key.reset(eleven_token)
+
+
 app = FastAPI(title="two-agent-chat")
+app.add_middleware(_RequestApiKeysMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -76,6 +102,19 @@ def _personas_document() -> dict[str, Any]:
 
 
 _sessions: dict[str, dict[str, Any]] = {}
+# Sessions hold the visitor's ElevenLabs key in memory, so drop them once they go stale.
+SESSION_TTL_S = 60 * 60
+
+
+def _purge_stale_sessions() -> None:
+    now = time.time()
+    for stale_id, stale in list(_sessions.items()):
+        if now - float(stale.get("created_at", now)) <= SESSION_TTL_S:
+            continue
+        pipeline = stale.get("pipeline")
+        if pipeline is not None:
+            pipeline.cancel()
+        _sessions.pop(stale_id, None)
 _cached_doc: dict[str, Any] | None = None
 
 PERSONAS_PATH = ROOT / "data" / "agent_personas.json"
@@ -154,11 +193,45 @@ def _openai_json_object(
     return out
 
 
-def _client() -> OpenAI | None:
-    key = os.getenv("OPENAI_API_KEY")
+TURN_REQUEST_TIMEOUT_S = 15.0
+PERSONA_REQUEST_TIMEOUT_S = 20.0
+
+
+MISSING_OPENAI_KEY = "OpenAI API key is missing. Enter it on the API keys page."
+MISSING_ELEVENLABS_KEY = "ElevenLabs API key is missing. Enter it on the API keys page."
+
+# Visitors bring their own keys (request headers). Server .env keys are only used as a
+# fallback when ALLOW_SERVER_KEYS is on, so a public deployment never spends the owner's quota.
+ALLOW_SERVER_KEYS = os.getenv("ALLOW_SERVER_KEYS", "").strip().lower() in {"1", "true", "yes"}
+_request_openai_key: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "request_openai_key", default=None
+)
+_request_elevenlabs_key: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "request_elevenlabs_key", default=None
+)
+
+
+def _openai_key() -> str | None:
+    key = _request_openai_key.get()
+    if key:
+        return key
+    return os.getenv("OPENAI_API_KEY") if ALLOW_SERVER_KEYS else None
+
+
+def _elevenlabs_key() -> str | None:
+    key = _request_elevenlabs_key.get()
+    if key:
+        return key
+    return os.getenv("ELEVENLABS_API_KEY") if ALLOW_SERVER_KEYS else None
+
+
+def _client(*, timeout: float = 60.0, max_retries: int = 1) -> OpenAI | None:
+    key = _openai_key()
     if not key:
         return None
-    return OpenAI(api_key=key)
+    # Default client timeout is 10 minutes, so a stalled call looks like a frozen button.
+    # Turns normally return in ~2s; a stalled connection should be retried quickly.
+    return OpenAI(api_key=key, timeout=timeout, max_retries=max_retries)
 
 
 # Break after . , ? ! ... (when followed by whitespace) or on " - ".
@@ -368,11 +441,14 @@ def _choose_disfluencies(
     *,
     speaker_name: str,
     segments: list[str],
+    disfluency_enabled: bool | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], int]:
     """Returns (disfluencies, segments_for_tts, disfluency_count)."""
 
+    # None keeps the global exp_control switch. Comparison sessions pass True/False explicitly.
+    enabled = exp_control.disfluency_speech if disfluency_enabled is None else disfluency_enabled
     # If exp control does not allow disfluency speech, don't insert disfluencies
-    if not exp_control.disfluency_speech or not segments:
+    if not enabled or not segments:
         return [], list(segments), 0
 
     disfluency_count = _sample_disfluency_count(segments)
@@ -627,6 +703,7 @@ def _segment_utterance_for_display(
     listener_name: str,
     utterance: str,
     discussion_topic: str = "",
+    disfluency_enabled: bool | None = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """Segment + backchannels + disfluencies. Returns (display dict, partial stage timings)."""
     inner = utterance.strip()
@@ -668,6 +745,7 @@ def _segment_utterance_for_display(
         client,
         speaker_name=speaker_name,
         segments=segments,
+        disfluency_enabled=disfluency_enabled,
     )
     disfluency_ms = _elapsed_ms(t0)
     print(f"\n[OUTPUT 3 - DISFLUENCY] {speaker_name} ({disfluency_ms}ms) — {disfluency_count} inserted")
@@ -781,6 +859,7 @@ def _synthesize_with_retry(
     text: str,
     voice_id: str,
     speed: float,
+    api_key: str,
     retries: int = 3,
 ) -> dict[str, Any]:
     last_err: str | None = None
@@ -791,6 +870,7 @@ def _synthesize_with_retry(
                 text=text,
                 voice_id=voice_id,
                 speed=speed,
+                api_key=api_key,
             )
             if result.get("audio_base64"):
                 return result
@@ -820,9 +900,10 @@ def _synthesize_turn_audio(
     tts_units: list[str],
     backchannels: list[dict[str, Any]],
     on_line_ready: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
+    api_key: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int | None]:
     """One clip per TTS unit + separate backchannel clips (parallel)."""
-    if not os.getenv("ELEVENLABS_API_KEY"):
+    if not api_key:
         return [], [], None
 
     speaker_vid = tts.voice_id_for_agent(speaker)
@@ -906,7 +987,9 @@ def _synthesize_turn_audio(
         future_map = {}
         for job in jobs:
             kind, idx, text, name, voice_id, speed = job
-            fut = pool.submit(_synthesize_with_retry, text=text, voice_id=voice_id, speed=speed)
+            fut = pool.submit(
+                _synthesize_with_retry, text=text, voice_id=voice_id, speed=speed, api_key=api_key
+            )
             future_map[fut] = (kind, idx, name, text)
         for fut in as_completed(future_map):
             kind, idx, name, text = future_map[fut]
@@ -1029,6 +1112,7 @@ def _start_turn_tts_background(
                 tts_units=tts_units,
                 backchannels=backchannels,
                 on_line_ready=on_ready,
+                api_key=sess.get("elevenlabs_api_key"),
             )
             with state.lock:
                 state.complete = True
@@ -1050,6 +1134,7 @@ def _generate_turn_text(
     discussion_topic: str,
     transcript_so_far: list[dict[str, str]],
     max_attempts: int = 3,
+    include_conversation_instructions: bool | None = None,
 ) -> tuple[str, int]:
     speaker = agents[speaker_idx]
     partner = agents[1 - speaker_idx]
@@ -1062,6 +1147,7 @@ def _generate_turn_text(
         stance_on_topic=str(speaker.get("initial_view", "")),
         personal_story=str(speaker.get("personal_story", "")),
         voice_style=str(speaker.get("voice", "")),
+        include_conversation_instructions=include_conversation_instructions,
     )
     user_content = prompts.agent_user_prompt(
         speaker_name=speaker["name"],
@@ -1178,6 +1264,7 @@ class SessionPipeline:
 
     def __init__(self, sess: dict[str, Any]):
         self.sess = sess
+        self.max_turns = int(sess.get("max_turns") or MAX_TURNS)
         self.lock = threading.Lock()
         self.ready = threading.Event()
         self.consumed = threading.Event()
@@ -1189,9 +1276,9 @@ class SessionPipeline:
         self.tts_pool = ThreadPoolExecutor(max_workers=1)
         self._build_executor = ThreadPoolExecutor(max_workers=1)
         self._worker: threading.Thread | None = None
-        client = _client()
+        client = _client(timeout=TURN_REQUEST_TIMEOUT_S, max_retries=2)
         if client is None:
-            raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not set.")
+            raise HTTPException(status_code=401, detail=MISSING_OPENAI_KEY)
         self._client = client
 
     def cancel(self) -> None:
@@ -1220,6 +1307,7 @@ class SessionPipeline:
         return _segment_utterance_for_display(
             self._client, speaker["name"], partner["name"], text,
             discussion_topic=str(self.sess.get("discussion_topic", "")),
+            disfluency_enabled=self.sess.get("disfluency_enabled"),
         )
 
     def _build_turn(
@@ -1237,6 +1325,7 @@ class SessionPipeline:
             speaker_idx=speaker_idx,
             discussion_topic=str(self.sess["discussion_topic"]),
             transcript_so_far=list(self.sess["transcript"]),
+            include_conversation_instructions=self.sess.get("conversation_instructions"),
         )
         display, stage_partial = self._postprocess_turn_text(
             speaker_idx=speaker_idx, text=text
@@ -1306,6 +1395,7 @@ class SessionPipeline:
             speaker_idx=speaker_idx,
             discussion_topic=str(self.sess["discussion_topic"]),
             transcript_so_far=self.sess["transcript"],
+            include_conversation_instructions=self.sess.get("conversation_instructions"),
         )
         display, stage_partial = self._postprocess_turn_text(
             speaker_idx=speaker_idx, text=text
@@ -1324,7 +1414,7 @@ class SessionPipeline:
         if turn_payload.get("timings"):
             turn_payload["timings"]["total_ms"] = _elapsed_ms(t_all)
 
-        if MAX_TURNS > 1:
+        if self.max_turns > 1:
             self._worker = threading.Thread(
                 target=self._worker_loop,
                 args=(2,),
@@ -1339,7 +1429,7 @@ class SessionPipeline:
         pending_next: Future[dict[str, Any]] | None = None
         try:
             turn_no = next_turn_no
-            while turn_no <= MAX_TURNS and not self.cancelled:
+            while turn_no <= self.max_turns and not self.cancelled:
                 if pending_next is not None:
                     turn_payload = pending_next.result()
                     pending_next = None
@@ -1353,7 +1443,7 @@ class SessionPipeline:
                     self.consumed.clear()
                     self.ready.set()
 
-                if turn_no < MAX_TURNS and not self.cancelled:
+                if turn_no < self.max_turns and not self.cancelled:
                     nxt = turn_no + 1
                     pending_next = self._build_executor.submit(
                         self._build_turn_committed, nxt
@@ -1412,12 +1502,14 @@ def _reply_for_speaker(
     discussion_topic: str,
     transcript_so_far: list[dict[str, str]],
     tts_enabled: bool = False,
+    include_conversation_instructions: bool | None = None,
+    disfluency_enabled: bool | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    client = _client()
+    client = _client(timeout=TURN_REQUEST_TIMEOUT_S, max_retries=2)
     if client is None:
         raise HTTPException(
-            status_code=503,
-            detail="OPENAI_API_KEY is not set.",
+            status_code=401,
+            detail=MISSING_OPENAI_KEY,
         )
 
     speaker = agents[speaker_idx]
@@ -1432,6 +1524,7 @@ def _reply_for_speaker(
         stance_on_topic=str(speaker.get("initial_view", "")),
         personal_story=str(speaker.get("personal_story", "")),
         voice_style=str(speaker.get("voice", "")),
+        include_conversation_instructions=include_conversation_instructions,
     )
     user_content = prompts.agent_user_prompt(
         speaker_name=speaker["name"],
@@ -1461,6 +1554,7 @@ def _reply_for_speaker(
     display, stage_partial = _segment_utterance_for_display(
         client, speaker["name"], partner["name"], text,
         discussion_topic=discussion_topic,
+        disfluency_enabled=disfluency_enabled,
     )
 
     audio_lines: list[dict[str, Any]] = []
@@ -1475,6 +1569,7 @@ def _reply_for_speaker(
             listener=partner,
             tts_units=tts_units,
             backchannels=_backchannels_for_tts(display),
+            api_key=_elevenlabs_key(),
         )
         tts_wall_ms = _elapsed_ms(t0)
 
@@ -1553,6 +1648,62 @@ class GeneratePersonasBody(BaseModel):
     topic: str = Field(min_length=1)
 
 
+@app.get("/key-config")
+def key_config():
+    return {
+        "allow_server_keys": ALLOW_SERVER_KEYS,
+        "server_has_openai_key": ALLOW_SERVER_KEYS and bool(os.getenv("OPENAI_API_KEY")),
+        "server_has_elevenlabs_key": ALLOW_SERVER_KEYS and bool(os.getenv("ELEVENLABS_API_KEY")),
+    }
+
+
+def _check_openai_key(key: str | None) -> dict[str, Any]:
+    if not key:
+        return {"ok": False, "error": "Missing."}
+    try:
+        OpenAI(api_key=key, timeout=15.0, max_retries=1).models.list()
+        return {"ok": True}
+    except AuthenticationError:
+        return {"ok": False, "error": "OpenAI rejected this key."}
+    except Exception as exc:
+        return {"ok": False, "error": f"Could not reach OpenAI: {exc}"}
+
+
+def _check_elevenlabs_key(key: str | None) -> dict[str, Any]:
+    if not key:
+        return {"ok": False, "error": "Missing."}
+    try:
+        rsp = httpx.get(
+            "https://api.elevenlabs.io/v1/models",
+            headers={"xi-api-key": key},
+            timeout=15.0,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"Could not reach ElevenLabs: {exc}"}
+    if rsp.status_code in (400, 401, 403):
+        try:
+            status = str((rsp.json().get("detail") or {}).get("status", ""))
+        except Exception:
+            status = ""
+        # Restricted keys may lack the models scope but still allow text-to-speech.
+        if status != "missing_permissions":
+            return {"ok": False, "error": "ElevenLabs rejected this key."}
+    elif rsp.status_code >= 400:
+        return {"ok": False, "error": f"ElevenLabs returned HTTP {rsp.status_code}."}
+    return {"ok": True}
+
+
+@app.post("/validate-keys")
+def validate_keys():
+    openai_result = _check_openai_key(_openai_key())
+    elevenlabs_result = _check_elevenlabs_key(_elevenlabs_key())
+    return {
+        "ok": openai_result["ok"] and elevenlabs_result["ok"],
+        "openai": openai_result,
+        "elevenlabs": elevenlabs_result,
+    }
+
+
 @app.post("/generate-personas-from-topic")
 def generate_personas_from_topic(body: GeneratePersonasBody):
     """
@@ -1565,9 +1716,9 @@ def generate_personas_from_topic(body: GeneratePersonasBody):
         doc = personas_document()
         return {"ok": True, "path": str(PERSONAS_PATH.relative_to(ROOT)), "personas": doc, "fixed": True}
 
-    client = _client()
+    client = _client(timeout=PERSONA_REQUEST_TIMEOUT_S, max_retries=2)
     if client is None:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not set.")
+        raise HTTPException(status_code=401, detail=MISSING_OPENAI_KEY)
 
     topic = body.topic.strip()
     model = PERSONA_AUTHORING_MODEL
@@ -1576,12 +1727,14 @@ def generate_personas_from_topic(body: GeneratePersonasBody):
     name_a = str(agents[0]["name"])
     name_b = str(agents[1]["name"])
 
+    t0 = time.perf_counter()
     views_payload = _openai_json_object(
         client=client,
         model=model,
         system=prompts.PERSONA_TWO_VIEWS_SYSTEM,
         user=prompts.persona_two_views_user_prompt(topic, name_a, name_b),
     )
+    print(f"[PERSONAS] views {_elapsed_ms(t0)}ms")
     view_a = str(views_payload.get("initial_view_a", "")).strip()
     view_b = str(views_payload.get("initial_view_b", "")).strip()
     if not view_a or not view_b:
@@ -1590,18 +1743,21 @@ def generate_personas_from_topic(body: GeneratePersonasBody):
             detail="model did not return initial_view_a / initial_view_b",
         )
 
-    story_a_payload = _openai_json_object(
-        client=client,
-        model=model,
-        system=prompts.PERSONA_STORY_SYSTEM,
-        user=prompts.persona_story_user_prompt(topic, name_a, view_a),
-    )
-    story_b_payload = _openai_json_object(
-        client=client,
-        model=model,
-        system=prompts.PERSONA_STORY_SYSTEM,
-        user=prompts.persona_story_user_prompt(topic, name_b, view_b),
-    )
+    def story_for(name: str, view: str) -> dict[str, Any]:
+        return _openai_json_object(
+            client=client,
+            model=model,
+            system=prompts.PERSONA_STORY_SYSTEM,
+            user=prompts.persona_story_user_prompt(topic, name, view),
+        )
+
+    t0 = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fut_a = pool.submit(story_for, name_a, view_a)
+        fut_b = pool.submit(story_for, name_b, view_b)
+        story_a_payload = fut_a.result()
+        story_b_payload = fut_b.result()
+    print(f"[PERSONAS] stories {_elapsed_ms(t0)}ms")
     story_a = str(story_a_payload.get("personal_story", "")).strip()
     story_b = str(story_b_payload.get("personal_story", "")).strip()
     if not story_a or not story_b:
@@ -1624,17 +1780,34 @@ class StartBody(BaseModel):
     """Optional override replaces prompts.DISCUSSION_TOPIC for that session only."""
     topic_override: str | None = Field(default=None)
     tts_enabled: bool = Field(default=False)
+    max_turns: int | None = Field(default=None, ge=1, le=40)
+    mode: Literal["baseline", "exp"] | None = None
+
+
+def _comparison_flags(mode: str | None) -> tuple[bool | None, bool | None]:
+    """Return (conversation_instructions, disfluency_enabled). None keeps global exp_control."""
+    if mode == "baseline":
+        return False, False
+    if mode == "exp":
+        return True, True
+    return None, None
 
 
 @app.post("/start")
 def start_session(body: StartBody):
     doc = personas_document()
     agents: list[dict[str, Any]] = doc["agents"]
+    _purge_stale_sessions()
     sid = uuid.uuid4().hex[:16]
 
     ov = (body.topic_override or "").strip()
     discussion_topic = ov or prompts.discussion_topic_strip()
     tts_enabled = body.tts_enabled
+    max_turns = int(body.max_turns) if body.max_turns is not None else MAX_TURNS
+    conversation_instructions, disfluency_enabled = _comparison_flags(body.mode)
+    elevenlabs_api_key = _elevenlabs_key()
+    if tts_enabled and not elevenlabs_api_key:
+        raise HTTPException(status_code=401, detail=MISSING_ELEVENLABS_KEY)
 
     transcript: list[dict[str, str]] = []
     speaker_idx = len(transcript) % 2
@@ -1644,8 +1817,19 @@ def start_session(body: StartBody):
         "agents": agents,
         "transcript": transcript,
         "tts_enabled": tts_enabled,
+        "max_turns": max_turns,
+        "mode": body.mode,
+        "conversation_instructions": conversation_instructions,
+        "disfluency_enabled": disfluency_enabled,
+        # Background TTS threads run outside the request, so the key travels with the session.
+        "elevenlabs_api_key": elevenlabs_api_key,
+        "created_at": time.time(),
     }
     _sessions[sid] = sess
+    print(
+        f"[SESSION] mode={body.mode} max_turns={max_turns} "
+        f"conversation_instructions={conversation_instructions} disfluency={disfluency_enabled}"
+    )
 
     if tts_enabled:
         pipeline = SessionPipeline(sess)
@@ -1658,6 +1842,8 @@ def start_session(body: StartBody):
             discussion_topic=discussion_topic,
             transcript_so_far=transcript,
             tts_enabled=False,
+            include_conversation_instructions=conversation_instructions,
+            disfluency_enabled=disfluency_enabled,
         )
         first = agents[speaker_idx]
         transcript.append({"speaker": first["name"], "text": text})
@@ -1666,7 +1852,8 @@ def start_session(body: StartBody):
 
     return {
         "session_id": sid,
-        "max_turns": MAX_TURNS,
+        "max_turns": max_turns,
+        "mode": body.mode,
         "discussion_topic": discussion_topic,
         "tts_enabled": tts_enabled,
         "debug_setting": bool(exp_control.debug_setting),
@@ -1688,8 +1875,9 @@ def next_turn(body: NextBody):
         raise HTTPException(status_code=404, detail="unknown session_id")
 
     transcript: list[dict[str, str]] = sess["transcript"]
+    max_turns = int(sess.get("max_turns") or MAX_TURNS)
     pipeline_early: SessionPipeline | None = sess.get("pipeline")
-    if len(transcript) >= MAX_TURNS:
+    if len(transcript) >= max_turns:
         if pipeline_early is None:
             return {"done": True}
         with pipeline_early.lock:
@@ -1719,13 +1907,15 @@ def next_turn(body: NextBody):
             discussion_topic=discussion_topic,
             transcript_so_far=transcript,
             tts_enabled=tts_enabled,
+            include_conversation_instructions=sess.get("conversation_instructions"),
+            disfluency_enabled=sess.get("disfluency_enabled"),
         )
         speaker = agents[speaker_idx]
         partner = agents[1 - speaker_idx]
         transcript.append({"speaker": speaker["name"], "text": text})
         turn_payload = _turn_api_payload(turn_no, speaker, partner, text, display)
 
-    done = len(transcript) >= MAX_TURNS
+    done = len(transcript) >= max_turns
     if done and pipeline is not None:
         with pipeline.lock:
             if pipeline.prefetch is not None:
@@ -1737,3 +1927,19 @@ def next_turn(body: NextBody):
         if pl is not None:
             pl.cancel()
     return payload
+
+
+class CancelBody(BaseModel):
+    session_id: str = Field(min_length=8)
+
+
+@app.post("/cancel")
+def cancel_session(body: CancelBody):
+    """Stop prefetch for this session. Turns already started can still finish TTS."""
+    sess = _sessions.get(body.session_id)
+    if not sess:
+        raise HTTPException(status_code=404, detail="unknown session_id")
+    pipeline: SessionPipeline | None = sess.get("pipeline")
+    if pipeline is not None:
+        pipeline.cancel()
+    return {"ok": True}

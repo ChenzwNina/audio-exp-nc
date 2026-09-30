@@ -1,55 +1,28 @@
 # Audio-exp: Two-agent dialogue with TTS
 
-A minimal app for two-persona debates: LLM turn generation, spoken-style post-processing (disfluencies, backchannels, ElevenLabs audio tags), and streaming TTS playback in the browser.
+A web app that has two LLM personas discuss a topic out loud, and plays the same conversation side by side in two conditions:
+
+- **Off-the-shelf agent** (left): disfluency off, conversation-style instructions off, no added pauses.
+- **Imperfect agent** (right): disfluency on, conversation-style instructions (`AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS`) on, random pauses within and between turns.
+
+Both sides share the same topic and the same generated stances and personal stories. Dialogue is written by OpenAI and spoken by ElevenLabs.
 
 ## Requirements
 
 - **Python** 3.10 or newer
-- **pip** (venv recommended)
+- An **OpenAI API key** and an **ElevenLabs API key** (each visitor uses their own; see [API keys](#api-keys))
 
-### Python packages
+| Package             | Purpose                                                   |
+| ------------------- | --------------------------------------------------------- |
+| `openai`            | Personas, dialogue turns, disfluency insertion            |
+| `elevenlabs`        | Text-to-speech                                            |
+| `fastapi`           | HTTP API                                                  |
+| `uvicorn[standard]` | ASGI server                                               |
+| `pydantic`          | Request/response models                                   |
+| `httpx`             | ElevenLabs key check                                      |
+| `python-dotenv`     | Load optional settings from `.env`                        |
 
-Install from `requirements.txt`:
-
-
-| Package             | Purpose                                                                 |
-| ------------------- | ----------------------------------------------------------------------- |
-| `openai`            | GPT for dialogue, personas, disfluencies, backchannels, expression tags |
-| `elevenlabs`        | Text-to-speech (optional if TTS is off)                                 |
-| `python-dotenv`     | Load `.env`                                                             |
-| `fastapi`           | HTTP API                                                                |
-| `uvicorn[standard]` | ASGI server                                                             |
-| `pydantic`          | Request/response models                                                 |
-
-
-```bash
-pip install -r requirements.txt
-```
-
-## Environment variables
-
-Copy the example file and fill in keys:
-
-```bash
-cp .env.example .env
-```
-
-
-| Variable                   | Required | Description                                                       |
-| -------------------------- | -------- | ----------------------------------------------------------------- |
-| `OPENAI_API_KEY`           | **Yes**  | All LLM steps (personas, turns, disfluencies, backchannels, tags) |
-| `ELEVENLABS_API_KEY`       | For TTS  | Synthesis of speaker units and listener backchannels              |
-| `CONVERSATION_MAX_TURNS`   | No       | Max turns per session (default `12`)                              |
-| `DISFLUENCY_RATE_PER_WORD` | No       | Disfluency count scale (default `0.14`)                           |
-| `ELEVENLABS_MODEL`         | No       | Default `eleven_v3`                                               |
-| `ELEVENLABS_OUTPUT_FORMAT` | No       | Default `mp3_44100_128`                                           |
-
-
-Without `ELEVENLABS_API_KEY`, leave **TTS** unchecked in the UI; text and post-processing still run.
-
-Personas live in `data/agent_personas.json` (names, voices, `initial_view`, `personal_story`). The UI can regenerate views/stories via **Generate personas from topic** (`POST /generate-personas-from-topic`).
-
-## Run the server
+## Run locally
 
 From the repository root:
 
@@ -58,18 +31,54 @@ python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)** — the app serves `frontend/index.html` and API routes on the same origin.
+Open **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**. The server serves `frontend/index.html` and the API on the same origin.
 
-### Typical UI flow
+## API keys
 
-1. Set discussion topic (or use default from prompts).
-2. Generate personas from the topic.
-3. Enable **TTS** if ElevenLabs is configured.
-4. **Start** — first turn returns; with auto-advance, later turns are fetched via `/next_turn`.
-5. Export HTML/audio or a clean transcript when finished.
+Keys are entered on the first page of the app, not configured on the server.
+
+- The browser sends them with each request in the `X-OpenAI-Key` and `X-ElevenLabs-Key` headers.
+- The server uses them only for that visitor's requests and never writes them to disk. The ElevenLabs key is held in memory with the conversation session (needed by background TTS) and dropped when the session expires after 1 hour.
+- In the browser, keys live in `sessionStorage` (cleared when the tab closes), or in `localStorage` if the visitor ticks **Remember on this browser**.
+- **Check keys and continue** calls `POST /validate-keys` before moving on.
+
+### Using your own server keys (local only)
+
+To skip typing keys on your own machine, put them in `.env` and turn on the fallback:
+
+```bash
+cp .env.example .env              # then fill in OPENAI_API_KEY and ELEVENLABS_API_KEY
+ALLOW_SERVER_KEYS=1 python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The keys page then shows a **Use server keys** button. **Never set `ALLOW_SERVER_KEYS` on a public deployment**, or every visitor will spend your quota. `.env` is git-ignored; do not commit it.
+
+## Environment variables
+
+All optional.
+
+| Variable                   | Default          | Description                                                   |
+| -------------------------- | ---------------- | ------------------------------------------------------------- |
+| `ALLOW_SERVER_KEYS`        | off              | `1` lets requests without key headers fall back to `.env` keys |
+| `OPENAI_API_KEY`           | —                | Used only when `ALLOW_SERVER_KEYS=1`                          |
+| `ELEVENLABS_API_KEY`       | —                | Used only when `ALLOW_SERVER_KEYS=1`                          |
+| `DISFLUENCY_RATE_PER_WORD` | `0.09`           | Disfluency count scale                                        |
+| `ELEVENLABS_MODEL`         | `eleven_v3`      | TTS model                                                     |
+| `ELEVENLABS_OUTPUT_FORMAT` | `mp3_44100_128`  | TTS output format                                             |
+
+Experiment switches (conversation instructions, disfluency, backchannels, audio tags, max turns, debug timings) are Python constants in `backend/exp_control.py`. The comparison view overrides conversation instructions and disfluency per side; everything else follows that file.
+
+## UI flow
+
+1. **API keys** — enter and check both keys.
+2. **Topic** — type a discussion topic (required) and click **Generate agent profiles**.
+3. **Agent profiles** — review each agent's stance and personal story, set the number of turns (default 6), then **Continue to comparison**.
+4. **Side by side** — click **Start** on either column. The other column's Start is disabled until this one finishes. Each turn's text appears, its audio plays live, and the next turn appears once that audio ends. After a turn plays, a **Replay** player appears under its text; **Play all turns** replays the whole column. **Stop** ends the run; **Start** again begins from turn 1.
+
+On the imperfect side, the sampled pause lengths are labeled on the transcript, and replay uses the same pauses heard live.
 
 ---
 
@@ -77,25 +86,22 @@ Open **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)** — the app serves `fr
 
 ### Persona generation
 
-**Step 1: Generate two contrasting initial views**
+`POST /generate-personas-from-topic` (model `PERSONA_AUTHORING_MODEL`, default `gpt-4o`).
 
+**Step 1: Two contrasting stances**
 
-|              |                                                                                                                                                         |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Location** | System: `backend/prompts.py` — `PERSONA_TWO_VIEWS_SYSTEM` User: `backend/prompts.py` — `PERSONA_TWO_VIEWS_USER` (via `persona_two_views_user_prompt()`) |
-| **Function** | Produce `initial_view_a` and `initial_view_b` as JSON from the discussion topic and agent names.                                                        |
-| **API**      | `POST /generate-personas-from-topic` (model: `PERSONA_AUTHORING_MODEL`, default `gpt-4o`)                                                               |
+|              |                                                                                                                              |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Location** | `backend/prompts.py` — `PERSONA_TWO_VIEWS_SYSTEM`, `persona_two_views_user_prompt()`                                         |
+| **Function** | Produce `initial_view_a` and `initial_view_b` as JSON from the topic and agent names.                                        |
 
+**Step 2: Two personal stories**
 
-**Step 2: Generate two persona stories**
-
-
-|                 |                                                                                                                                             |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Location**    | System: `backend/prompts.py` — `PERSONA_STORY_SYSTEM` User: `backend/prompts.py` — `PERSONA_STORY_USER` (via `persona_story_user_prompt()`) |
-| **Function**    | One call per agent: a `personal_story` that explains how they came to hold their `initial_view`.                                            |
-| **Persistence** | Written to `data/agent_personas.json`                                                                                                       |
-
+|                 |                                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| **Location**    | `backend/prompts.py` — `PERSONA_STORY_SYSTEM`, `persona_story_user_prompt()`                      |
+| **Function**    | One call per agent (run in parallel): a `personal_story` explaining how they came to their stance. |
+| **Persistence** | Written to `data/agent_personas.json`                                                             |
 
 ---
 
@@ -103,122 +109,112 @@ Open **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)** — the app serves `fr
 
 Orchestrated in `backend/main.py` — `_segment_utterance_for_display()` (post-process) and `_finalize_turn_with_tts()` (TTS).
 
-**Step 1: Prompt for response generation**
+**Step 1: Generate the reply**
 
+|              |                                                                                                                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Location** | `backend/prompts.py` — `agent_system_prompt()`, `agent_user_prompt()`                                                                                            |
+| **Function** | Full reply for the current speaker from topic, personas, and transcript. `AGENT_SYSTEM_PROMPT_CONVERSATION_INSTRUCTIONS` is appended only on the imperfect side. |
+| **Code**     | `_generate_turn_text()`                                                                                                                                          |
 
-|              |                                                                                                                                                                                   |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Location** | System: `backend/prompts.py` — `AGENT_SYSTEM_PROMPT_TEMPLATE` (via `agent_system_prompt()`) User: `backend/prompts.py` — `AGENT_USER_PROMPT_TEMPLATE` (via `agent_user_prompt()`) |
-| **Function** | Generate a full reply for the current speaker from topic, personas, and transcript.                                                                                               |
-| **Code**     | `_generate_turn_text()`                                                                                                                                                           |
+**Step 2: Split into segments**
 
+|              |                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------- |
+| **Location** | `backend/main.py` — `_split_utterance_segments()` → `_split_utterance_segments_deterministic()`   |
+| **Function** | Rule-based split after `. , ? !` (when followed by whitespace), after `...`, or on `-`.           |
 
-**Step 2: Split the response into segments**
+**Step 3: Sample disfluency count and types** (imperfect side only)
 
+|              |                                                                                                                                  |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Count**    | `_sample_disfluency_count()` — `int(word_count × DISFLUENCY_RATE_PER_WORD)`                                                      |
+| **Types**    | `_pick_disfluency_type()` using `DISFLUENCY_TYPE_WEIGHTS`: filled pause 0.31, prolongation 0.28, discourse marker 0.24, repetition 0.16, self-repair 0 |
 
-|              |                                                                                                                                   |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Location** | `backend/main.py` — `_split_utterance_segments()` → `_split_utterance_segments_deterministic()`                                   |
-| **Function** | Rule-based split after `. , ? !` (when followed by whitespace), after `...`, or on `-`. LLM splitter exists but is commented out. |
+**Step 4: Insert disfluencies** (imperfect side only)
 
+|              |                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------- |
+| **Location** | `backend/prompts.py` — `DISFLUENCY_INSERT_SYSTEM`, `DISFLUENCY_INSERT_USER`                       |
+| **Function** | LLM (`DISFLUENCY_INSERT_MODEL`, default `gpt-4o`) weaves the requested types into segments.       |
+| **Code**     | `_choose_disfluencies()`                                                                          |
 
-**Step 3: Sample number of disfluencies and types**
+**Group segments into TTS units**
 
+|              |                                                                                          |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| **Location** | `backend/tts.py` — `group_segments_for_tts_units()`                                      |
+| **Function** | Sew comma-clauses into units; sentence boundaries at `. ! ?`.                            |
 
-|              |                                                                                                                                                                                    |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Count**    | `backend/main.py` — `_sample_disfluency_count()`                                                                                                                                   |
-| **Function** | `disfluency_count = int(word_count × DISFLUENCY_RATE_PER_WORD)` (default rate `0.14` from env).                                                                                    |
-| **Types**    | `backend/main.py` — `_choose_disfluencies()`, `_pick_disfluency_type()`                                                                                                            |
-| **Function** | For each disfluency slot, pick one type: • **88%** common tier: filled pause (45%), discourse marker (30%), elongation (25%) • **12%** rare tier: self-repair (70%), stumble (30%) |
+**Step 5: Backchannels** — off unless `backchannel_speech = True` in `exp_control.py` (`_choose_backchannels()`).
 
-
-**Step 4: Insert disfluencies**
-
-
-|              |                                                                                                                   |
-| ------------ | ----------------------------------------------------------------------------------------------------------------- |
-| **Location** | System: `backend/prompts.py` — `DISFLUENCY_INSERT_SYSTEM` User: `backend/prompts.py` — `DISFLUENCY_INSERT_USER`   |
-| **Function** | LLM (`DISFLUENCY_INSERT_MODEL`, default `gpt-4o-mini`) weaves requested types into segments → `segments_for_tts`. |
-| **Code**     | `_choose_disfluencies()`                                                                                          |
-
-
-**Group segments into TTS units** (between steps 4 and 5)
-
-
-|              |                                                                                                                             |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| **Location** | `backend/tts.py` — `group_segments_for_tts_units()`                                                                         |
-| **Function** | Sew comma-clauses into units; sentence boundaries at `. ! ?`. Backchannels attach to **TTS units**, not raw micro-segments. |
-
-
-**Step 5: Add backchannels**
-
-
-|              |                                                                                                                                                                       |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Location** | `backend/main.py` — `_choose_backchannels()` Prompts: `backend/prompts.py` — `BACKCHANNEL_INSERT_SYSTEM`, `BACKCHANNEL_INSERT_USER`                                   |
-| **Function** | Sample `max_backchannels = random.randint(0, len(tts_units) // 2)`. LLM (`BACKCHANNEL_INSERT_MODEL`, default `gpt-4o`) picks unit indices and short listener phrases. |
-
-
-**Step 6: Insert audio tags (ElevenLabs v3)**
-
-
-|              |                                                                                                            |
-| ------------ | ---------------------------------------------------------------------------------------------------------- |
-| **Location** | `backend/prompts.py` — `EXPRESSION_TAG_SYSTEM`, `EXPRESSION_TAG_USER` (via `expression_tag_user_prompt()`) |
-| **Function** | Add `[audio tags]` to speaker TTS units and optionally to backchannel clips (`text_for_tts`).              |
-| **Code**     | `_apply_expression_tags()`                                                                                 |
-
+**Step 6: ElevenLabs audio tags** — off unless `audio_tag_speech = True` in `exp_control.py` (`_apply_expression_tags()`).
 
 **Step 7: TTS**
 
+|              |                                                                                                                                                                      |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Location** | `backend/main.py` — `_start_turn_tts_background()` / `_synthesize_turn_audio()`; `backend/tts.py` — ElevenLabs client                                                |
+| **Function** | One clip per TTS unit, synthesized in parallel. The browser polls `GET /turn_audio` and plays units in order; on the imperfect side it inserts a sampled pause between units. |
 
-|              |                                                                                                                                                                                                                                 |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Location** | `backend/main.py` — `_finalize_turn_with_tts()` → `_start_turn_tts_background()` / `_synthesize_turn_audio()` `backend/tts.py` — ElevenLabs client                                                                              |
-| **Function** | One clip per speaker TTS unit (speaker voice) plus one per backchannel (listener voice), synthesized in parallel. Browser polls `GET /turn_audio` and plays units sequentially; backchannels overlap the **next** speaker unit. |
+Pause distributions (imperfect side, `frontend/index.html`):
 
+- Within a turn, between units: N(580 ms, 200 ms), clamped to [180, 980] ms.
+- Between turns: N(200 ms, 50 ms), clamped to [100, 300] ms.
+
+---
+
+### Turn handling for latency
+
+`SessionPipeline` prefetches upcoming turns while the current one plays.
+
+- As soon as a turn's TTS is **started**, the worker begins building the next turn's text.
+- `POST /next_turn` only hands over the already-built turn; it does not start generation.
+- The browser asks for the next turn only after the current turn's audio finishes, so text is revealed in step with the audio.
+
+OpenAI calls use short timeouts (15 s per turn, 20 s for personas) with retries, so a stalled connection is retried quickly instead of hanging.
+
+Relevant code: `SessionPipeline.build_first_turn()`, `SessionPipeline._worker_loop()`, `SessionPipeline.take_next_turn()`.
 
 ---
 
-### Turn handling for latency reduction
+## API
 
-When TTS is enabled, `SessionPipeline` prefetches the next turn while you listen to the current one.
-
-
-| Transition      | When the next turn starts                                                                                                                                                                   |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Turn 1 → 2**  | Right after turn 1’s step 7 is **started** (`_finalize_turn_with_tts` returns); worker thread runs `_build_turn_committed(2)`.                                                              |
-| **Turn 2 → 3+** | Right after the previous turn’s step 7 is **started** and that turn is committed to `transcript`; the worker submits the next `_build_turn_committed(N+1)` **before** waiting for delivery. |
-
-
-Delivery to the browser still happens on `POST /next_turn` (auto-advance calls this after each turn’s audio). That handoff does **not** start generation; it only releases the prefetched payload.
-
-So **turn 3 text generation can start while turn 1 audio is still playing**, as soon as turn 2’s full pipeline (steps 1–7 start) has finished — same pattern as turn 2 starting while turn 1 audio prepares.
-
-Relevant code:
-
-- `SessionPipeline.build_first_turn()` — turn 1 + `worker.start()`
-- `SessionPipeline._worker_loop()` — prefetch, `_build_executor.submit()` for next turn
-- `SessionPipeline.take_next_turn()` — deliver prefetched turn
+| Route                                | Purpose                                              |
+| ------------------------------------ | ---------------------------------------------------- |
+| `GET /key-config`                    | Whether server-key fallback is available             |
+| `POST /validate-keys`                | Check the OpenAI and ElevenLabs keys in the headers  |
+| `GET /topics`                        | Example topic                                        |
+| `POST /generate-personas-from-topic` | Generate stances and personal stories                |
+| `GET /personas`                      | Current personas                                     |
+| `POST /start`                        | Start a session (`mode`: `baseline` or `exp`)        |
+| `POST /next_turn`                    | Deliver the next prefetched turn                     |
+| `GET /turn_audio`                    | Poll a turn's audio clips                            |
+| `POST /cancel`                       | Stop a session's prefetching                         |
 
 ---
+
+## Deploying publicly
+
+- Serve over **HTTPS**; keys travel in request headers.
+- Run without `--reload` and without `ALLOW_SERVER_KEYS`.
+- `data/agent_personas.json` is shared by all visitors, so simultaneous users overwrite each other's generated profiles.
+- There is no rate limiting.
 
 ## Project layout
 
 ```
-audio-exp/
+audio-exp-nc/
 ├── backend/
-│   ├── main.py      # API, pipeline, post-process, TTS orchestration
-│   ├── prompts.py   # All LLM prompts
-│   └── tts.py       # Segment grouping, ElevenLabs
+│   ├── main.py         # API, key handling, pipeline, post-process, TTS orchestration
+│   ├── prompts.py      # All LLM prompts
+│   ├── tts.py          # Segment grouping, ElevenLabs
+│   └── exp_control.py  # Experiment switches
 ├── frontend/
-│   └── index.html   # UI, playback, export
+│   └── index.html      # UI and playback
 ├── data/
 │   └── agent_personas.json
 ├── requirements.txt
 ├── .env.example
 └── README.md
 ```
-

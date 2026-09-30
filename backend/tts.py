@@ -14,13 +14,12 @@ ELEVENLABS_SPEED_MIN = 0.7
 ELEVENLABS_SPEED_MAX = 1.2
 
 
-def _client():
-    key = os.getenv("ELEVENLABS_API_KEY")
-    if not key:
+def _client(api_key: str | None):
+    if not api_key:
         return None
     from elevenlabs import ElevenLabs
 
-    return ElevenLabs(api_key=key)
+    return ElevenLabs(api_key=api_key)
 
 
 def _alignment_to_dict(alignment: Any) -> dict[str, Any] | None:
@@ -62,14 +61,15 @@ def synthesize_with_timestamps(
     text: str,
     voice_id: str,
     speed: float | None = None,
+    api_key: str | None = None,
 ) -> dict[str, Any]:
     """
     One full clip per call. Returns audio_base64, alignment, duration_s, api_ms.
     Raises on missing API key or HTTP errors.
     """
-    client = _client()
+    client = _client(api_key)
     if client is None:
-        raise RuntimeError("ELEVENLABS_API_KEY is not set")
+        raise RuntimeError("ElevenLabs API key is missing")
 
     t0 = time.perf_counter()
     request_kwargs: dict[str, Any] = {

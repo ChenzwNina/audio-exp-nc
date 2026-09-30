@@ -2,50 +2,261 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>two-agent-chat</title>
+<title>Two-agent dialogue</title>
 <style>
-  body { font-family: -apple-system, system-ui, sans-serif; max-width: 760px; margin: 28px auto; padding: 0 18px; color: #1a1a1a; }
-  h1 { font-size: 20px; margin: 0 0 4px 0; }
-  .muted { color: #666; font-size: 13px; line-height: 1.35; }
-  section { border: 1px solid #e2e2e2; border-radius: 10px; padding: 14px 16px; margin: 14px 0; }
-  h2 { font-size: 15px; margin: 0 0 10px 0; }
-  button {
-    padding: 8px 14px;
-    border: 1px solid #333;
-    background: #fff;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 14px;
+  :root {
+    --ink: #1c1915;
+    --muted: #6d655c;
+    --line: #e6dfd4;
+    --paper: #f3efe7;
+    --card: #fffdf9;
+    --navy: #243e5a;
+    --rust: #9a4328;
+    --shadow: 0 10px 30px rgba(60, 42, 24, 0.06);
   }
-  button.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
-  textarea#topic-input {
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 100px;
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 32px 24px 56px;
+    color: var(--ink);
+    background:
+      radial-gradient(900px 320px at 10% -10%, #efe4d2 0%, transparent 60%),
+      var(--paper);
+  }
+  .page-header { max-width: 860px; margin: 0 auto 18px; }
+  .eyebrow {
+    margin: 0 0 6px;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--rust);
+    font-weight: 700;
+  }
+  h1 {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 40px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    margin: 0 0 8px;
+    line-height: 1.05;
+  }
+  .lede { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; white-space: nowrap; }
+  #stage-keys, #stage-setup, #stage-profiles { max-width: 860px; margin-left: auto; margin-right: auto; }
+  .header-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .link-btn { padding: 5px 12px; font-size: 12px; }
+  .key-field { display: block; margin: 0 0 16px; }
+  .key-input-row { display: flex; gap: 8px; align-items: center; }
+  .key-input-row input {
+    flex: 1;
+    min-width: 0;
     padding: 10px 12px;
     font-size: 14px;
-    font-family: inherit;
-    border: 1px solid #bdbdbd;
-    border-radius: 8px;
-    line-height: 1.45;
-    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    border: 1px solid #d9d1c6;
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ink);
   }
-  .persona-card { border: 1px solid #e8e8e8; border-radius: 8px; padding: 10px 12px; margin: 10px 0; background: #fafafa; }
-  .persona-card h3 { margin: 0 0 6px 0; font-size: 15px; font-weight: 600; }
-  .field { font-size: 13px; margin: 6px 0; line-height: 1.4; }
-  .label { color: #444; font-weight: 600; }
-  #transcript .turn { border-bottom: 1px solid #eee; padding: 10px 0; font-size: 14px; line-height: 1.45; }
-  #transcript .turn:last-child { border-bottom: none; }
-  #transcript .turn.loading {
-    border-bottom: 1px solid #eee;
+  .key-input-row input.invalid { border-color: #b3402f; }
+  .reveal-btn { padding: 8px 12px; font-size: 12px; }
+  .key-hint { display: block; margin-top: 5px; font-size: 12px; color: var(--muted); }
+  .key-hint a { color: var(--navy); }
+  .key-error { display: block; margin-top: 4px; font-size: 12px; color: #b3402f; font-weight: 600; }
+  .key-error:empty { display: none; }
+  .remember-row { display: flex; gap: 8px; align-items: center; font-size: 14px; margin: 4px 0 6px; }
+  .key-privacy { margin: 0; }
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 22px 22px 18px;
+    margin: 16px 0;
+    box-shadow: var(--shadow);
+  }
+  #stage-compare.panel {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 4px 0 0;
+    margin-top: 8px;
+  }
+  .panel-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; }
+  .step {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: var(--navy);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .setup-row, .setup-footer {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 14px;
+  }
+  .setup-footer {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    justify-content: space-between;
+  }
+  .turns-field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .turns-field label { font-size: 14px; font-weight: 650; }
+  input[type="number"] {
+    width: 76px;
+    padding: 9px 10px;
+    font-size: 15px;
+    border: 1px solid #d9d1c6;
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .compare-top {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin-top: 20px; }
+  .compare-grid > .compare-col { margin: 0; }
+  .compare-col {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 18px 18px 16px;
+    min-width: 0;
+    background: var(--card);
+    box-shadow: var(--shadow);
+  }
+  .compare-col[data-mode="baseline"] { border-top: 4px solid var(--navy); }
+  .compare-col[data-mode="exp"] { border-top: 4px solid var(--rust); }
+  .compare-col.is-running { box-shadow: 0 0 0 2px var(--navy), var(--shadow); }
+  .compare-col[data-mode="exp"].is-running { box-shadow: 0 0 0 2px var(--rust), var(--shadow); }
+  .compare-col.is-waiting { opacity: 0.62; }
+  .col-kicker {
+    display: inline-block;
+    margin: 0 0 6px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .compare-col[data-mode="baseline"] .col-kicker { background: #e7eef5; color: var(--navy); }
+  .compare-col[data-mode="exp"] .col-kicker { background: #f8e8e1; color: var(--rust); }
+  .compare-col h2 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.02em; }
+  .compare-col .transcript { margin-top: 14px; }
+  .compare-col .transcript .turn {
+    background: #fff;
+    border: 1px solid #efe8dd;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin: 10px 0;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .compare-col[data-mode="baseline"] .transcript .turn { box-shadow: inset 3px 0 0 #c5d3e2; }
+  .compare-col[data-mode="exp"] .transcript .turn { box-shadow: inset 3px 0 0 #ecc3b4; }
+  .playback:empty { display: none; }
+  .playback {
+    margin-top: 16px;
+    padding: 12px 12px 4px;
+    border-radius: 14px;
+    background: #f7f4ee;
+    border: 1px solid var(--line);
+  }
+  .playback .play-all-btn { margin-bottom: 8px; }
+  .turn-audio { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .turn-audio .audio-label { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+  .turn-audio audio { width: 100%; height: 34px; }
+  .shared-summary { margin-bottom: 6px; }
+  .col-status:empty { display: none; }
+  .col-status:not(:empty) {
+    margin: 12px 0 0;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: #f6f3ed;
+    color: #4e473f;
+  }
+  @media (max-width: 900px) {
+    h1 { font-size: 32px; }
+    .compare-grid, .persona-grid { grid-template-columns: 1fr; }
+    .setup-footer, .compare-top { align-items: stretch; }
+  }
+  h2 { font-family: "Iowan Old Style", Palatino, Georgia, serif; font-size: 26px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.02em; }
+  .muted { color: var(--muted); font-size: 13px; line-height: 1.45; }
+  button {
+    padding: 9px 16px;
+    border: 1px solid #d7d0c6;
+    background: #fff;
+    color: var(--ink);
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  button:hover:not(:disabled) { border-color: #b7aea2; background: #fffaf3; }
+  button.primary { background: var(--navy); border-color: var(--navy); color: #fff; }
+  button.primary:hover:not(:disabled) { background: #1b324b; border-color: #1b324b; }
+  .compare-col[data-mode="exp"] button.primary { background: var(--rust); border-color: var(--rust); }
+  .compare-col[data-mode="exp"] button.primary:hover:not(:disabled) { background: #833822; border-color: #833822; }
+  button.col-stop { color: #8a3030; background: #fff; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:focus-visible, textarea:focus-visible, input:focus-visible {
+    outline: 2px solid #c98662;
+    outline-offset: 2px;
+  }
+  textarea#topic-input {
+    width: 100%;
+    min-height: 112px;
+    padding: 12px 14px;
+    font-size: 15px;
+    font-family: inherit;
+    border: 1px solid #d9d1c6;
+    border-radius: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    background: #fff;
+    color: var(--ink);
+  }
+  .persona-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .persona-grid > .muted { grid-column: 1 / -1; margin: 4px 0 0; }
+  .persona-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 14px 12px;
+    margin: 0;
+    background: #faf8f4;
+  }
+  .persona-card h3 { margin: 0 0 10px; font-size: 18px; font-weight: 650; letter-spacing: -0.02em; }
+  .field { font-size: 13px; margin: 10px 0 0; line-height: 1.45; }
+  .label {
+    display: block;
+    margin-bottom: 3px;
+    color: #8a8176;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .transcript .turn.loading {
     animation: pulse 1.1s ease-in-out infinite;
   }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.45; }
   }
-  .speaker { font-weight: 600; color: #1a73e8; }
+  .speaker { font-weight: 700; color: var(--navy); }
+  .compare-col[data-mode="exp"] .speaker { color: var(--rust); }
   .meta { font-size: 11px; color: #888; margin-bottom: 6px; line-height: 1.5; }
   .meta .meta-bc { color: #2e7d32; font-weight: 600; }
   .meta .meta-df { color: #e65100; font-weight: 600; }
@@ -111,8 +322,8 @@
   .timings-block {
     margin-top: 8px;
     padding: 8px 10px;
-    background: #f5f5f5;
-    border-radius: 6px;
+    background: #f6f3ed;
+    border-radius: 8px;
     font-size: 12px;
     line-height: 1.5;
     color: #555;
@@ -171,9 +382,7 @@
     box-shadow: inset 4px 0 0 #e91e63;
   }
   body.debug-hidden .timings-block,
-  body.debug-hidden .meta,
-  body.debug-hidden .unit-gap-indicator,
-  body.debug-hidden .speech-gap { display: none; }
+  body.debug-hidden .meta { display: none; }
   .unit-gap-indicator {
     display: block;
     font-size: 10px;
@@ -189,62 +398,175 @@
 <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 </head>
 <body>
-<h1>Two-agent dialogue</h1>
+<header class="page-header">
+  <div class="header-row">
+    <p class="eyebrow">Spoken dialogue comparison</p>
+    <button id="change-keys-btn" type="button" class="link-btn" hidden>API keys</button>
+  </div>
+  <h1>Two-agent dialogue</h1>
+  <p class="lede">Enter a topic, review the two agent profiles, then compare the same conversation side by side.</p>
+</header>
 
-<section id="topic-section">
-  <h2>Discussion topic</h2>
-  <label class="muted" for="topic-input">Edit the topic below. If empty when generating personas or starting, the server default from <code>backend/prompts.py</code> is used.</label>
+<section id="stage-keys" class="panel">
+  <div class="panel-head">
+    <span class="step">1</span>
+    <div>
+      <h2>API keys</h2>
+      <p class="muted">This app calls OpenAI to write the dialogue and ElevenLabs to speak it, using your own keys and your own quota.</p>
+    </div>
+  </div>
+  <form id="keys-form" autocomplete="off">
+    <label class="key-field">
+      <span class="label">OpenAI API key</span>
+      <span class="key-input-row">
+        <input id="openai-key-input" type="password" placeholder="sk-…" spellcheck="false" />
+        <button type="button" class="reveal-btn" data-target="openai-key-input">Show</button>
+      </span>
+      <span class="key-hint">Create one at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>.</span>
+      <span class="key-error" id="openai-key-error"></span>
+    </label>
+    <label class="key-field">
+      <span class="label">ElevenLabs API key</span>
+      <span class="key-input-row">
+        <input id="elevenlabs-key-input" type="password" placeholder="sk_…" spellcheck="false" />
+        <button type="button" class="reveal-btn" data-target="elevenlabs-key-input">Show</button>
+      </span>
+      <span class="key-hint">Create one at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">elevenlabs.io/app/settings/api-keys</a>. It needs text-to-speech access.</span>
+      <span class="key-error" id="elevenlabs-key-error"></span>
+    </label>
+    <label class="remember-row">
+      <input id="remember-keys" type="checkbox" />
+      <span>Remember on this browser</span>
+    </label>
+    <p class="muted key-privacy">Keys stay in this browser and are sent only with your own requests. The server does not save them to disk. Without “Remember”, they are cleared when you close the tab.</p>
+    <div class="setup-footer">
+      <span id="keys-status" class="muted"></span>
+      <span class="controls" style="margin-top:0">
+        <button id="use-server-keys-btn" type="button" hidden>Use server keys</button>
+        <button id="save-keys-btn" class="primary" type="submit">Check keys and continue</button>
+      </span>
+    </div>
+  </form>
+</section>
+
+<section id="stage-setup" class="panel" hidden>
+  <div class="panel-head">
+    <span class="step">2</span>
+    <div>
+      <h2>Topic</h2>
+      <p class="muted" id="topic-example">Example: Should online platforms be held liable for user-generated content?</p>
+    </div>
+  </div>
   <textarea id="topic-input" placeholder="Enter a discussion topic…" spellcheck="true"></textarea>
   <div class="controls">
     <button id="reload-default-topic-btn" type="button" title="Reset textarea to API default topic">Reset to default topic</button>
-    <button id="generate-personas-btn" class="primary" type="button">Generate personas from topic</button>
+    <button id="generate-personas-btn" class="primary" type="button" disabled>Generate agent profiles</button>
     <span id="generate-personas-status" class="muted"></span>
   </div>
-  <div class="controls" style="margin-top:8px">
-    <label class="muted"><input type="checkbox" id="tts-enabled" checked /> ElevenLabs TTS (play audio)</label>
-    <label class="muted"><input type="checkbox" id="auto-advance" checked /> After start, reveal remaining turns automatically</label>
-  </div>
 </section>
 
-<section id="personas-section">
-  <h2>Agents</h2>
-  <div id="personas-list">
-    <p class="muted" id="personas-empty-hint">Generate personas from topic above to display agents here.</p>
-  </div>
-  <div class="controls" style="margin-top:12px">
-    <button id="start-btn" class="primary" type="button">Start conversation</button>
-  </div>
-</section>
-
-<section id="conversation-section">
-  <h2>Transcript</h2>
-  <div class="muted" id="session-line" style="margin-bottom:8px"></div>
-  <div class="conversation-toolbar">
-    <div class="controls conversation-controls">
-      <button id="next-btn" type="button" disabled>Next turn</button>
-      <button id="auto-btn" type="button" disabled>Run remaining turns</button>
-      <button id="stop-chain-btn" type="button" disabled title="Stop requesting further turns (finishes current request first)">Stop generation</button>
-      <button id="save-export-btn" type="button" disabled title="Download transcript as a single HTML file with embedded audio">Save HTML &amp; audio</button>
-      <button id="save-clean-transcript-btn" type="button" disabled title="Download transcript using text before disfluencies were added">Save clean transcript</button>
-      <button id="save-audio-mp3-btn" type="button" disabled title="Download all turn audio merged into a single MP3 file">Download full audio (MP3)</button>
-      <span id="save-export-status" class="muted"></span>
+<section id="stage-profiles" class="panel" hidden>
+  <div class="compare-top">
+    <div class="panel-head" style="margin-bottom:0">
+      <span class="step">3</span>
+      <div>
+        <h2>Agent profiles</h2>
+        <p class="muted">These stances and personal stories are shared by off-the-shelf agent and imperfect realistic agent.</p>
+      </div>
     </div>
-    <p class="muted" style="margin-top:8px;font-size:12px;margin-bottom:0"><strong>Stop generation</strong> cancels the automatic chain only: any request already in flight will still complete.</p>
+    <button id="back-to-topic-btn" type="button">Back</button>
   </div>
-  <div id="transcript"></div>
+  <div id="personas-list" class="persona-grid">
+    <p class="muted" id="personas-empty-hint">Generate agent profiles from the topic to display them here.</p>
+  </div>
+  <div class="setup-footer">
+    <div class="turns-field">
+      <label for="turn-count">Turns</label>
+      <input id="turn-count" type="number" min="1" max="40" step="1" value="6" />
+      <span class="muted">Agents alternate. Both sides use this length.</span>
+    </div>
+    <button id="confirm-setup-btn" class="primary" type="button">Continue to comparison</button>
+  </div>
+</section>
+
+<section id="stage-compare" class="panel" hidden>
+  <div class="compare-top">
+    <div class="panel-head" style="margin-bottom:0">
+      <span class="step">4</span>
+      <div class="shared-summary">
+        <h2>Side by side</h2>
+        <p class="muted" id="compare-topic-line"></p>
+      </div>
+    </div>
+    <button id="back-to-setup-btn" type="button">Back</button>
+  </div>
+  <div id="shared-personas" class="persona-grid"></div>
+  <div class="compare-grid">
+    <section class="compare-col" data-mode="baseline">
+      <h2>Off-the-shelf agent</h2>
+      <p class="muted">Off-the-shelf. Disfluency off. Conversation-style instructions off.</p>
+      <div class="controls">
+        <button type="button" class="primary col-start">Start</button>
+        <button type="button" class="col-stop" disabled>Stop</button>
+      </div>
+      <p class="col-status"></p>
+      <div class="transcript"></div>
+      <div class="playback"></div>
+    </section>
+    <section class="compare-col" data-mode="exp">
+      <h2>Imperfect agent</h2>
+      <p class="muted">Disfluency on. Conversation-style instructions on. Random pauses within and between turns.</p>
+      <div class="controls">
+        <button type="button" class="primary col-start">Start</button>
+        <button type="button" class="col-stop" disabled>Stop</button>
+      </div>
+      <p class="col-status"></p>
+      <div class="transcript"></div>
+      <div class="playback"></div>
+    </section>
+  </div>
 </section>
 
 <script>
 const $ = (id) => document.getElementById(id);
 
-async function api(path, body) {
+const KEY_STORAGE = { openai: "dialogue.openaiKey", elevenlabs: "dialogue.elevenlabsKey" };
+let apiKeys = { openai: "", elevenlabs: "" };
+
+function loadStoredKeys() {
+  for (const [name, storageKey] of Object.entries(KEY_STORAGE)) {
+    apiKeys[name] = sessionStorage.getItem(storageKey) || localStorage.getItem(storageKey) || "";
+  }
+  return Boolean(localStorage.getItem(KEY_STORAGE.openai) || localStorage.getItem(KEY_STORAGE.elevenlabs));
+}
+
+function storeKeys(keys, remember) {
+  apiKeys = { ...keys };
+  for (const [name, storageKey] of Object.entries(KEY_STORAGE)) {
+    sessionStorage.removeItem(storageKey);
+    localStorage.removeItem(storageKey);
+    if (keys[name]) (remember ? localStorage : sessionStorage).setItem(storageKey, keys[name]);
+  }
+}
+
+async function api(path, body, extraHeaders = null) {
   const opts = { method: body ? "POST" : "GET", headers: {} };
+  if (apiKeys.openai) opts.headers["X-OpenAI-Key"] = apiKeys.openai;
+  if (apiKeys.elevenlabs) opts.headers["X-ElevenLabs-Key"] = apiKeys.elevenlabs;
+  if (extraHeaders) Object.assign(opts.headers, extraHeaders);
   if (body !== undefined && body !== null) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
   const r = await fetch(path, opts);
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) {
+    const raw = await r.text();
+    let detail = raw;
+    try {
+      detail = JSON.parse(raw).detail || raw;
+    } catch (_) {}
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
   return r.json();
 }
 
@@ -255,6 +577,14 @@ function escapeHtml(text) {
 }
 
 let loadingRowEl = null;
+let activeTranscriptEl = null;
+
+function transcriptHost() {
+  if (activeTranscriptEl) return activeTranscriptEl;
+  const fallback = document.getElementById("transcript");
+  if (!fallback) throw new Error("No transcript on screen.");
+  return fallback;
+}
 
 function removeLoadingRow() {
   if (loadingRowEl?.parentNode) loadingRowEl.remove();
@@ -266,15 +596,15 @@ function appendLoadingRow(message) {
   const row = document.createElement("div");
   row.className = "turn loading";
   row.innerHTML = `<div class="meta">Generating</div><span class="muted">${escapeHtml(message)}</span>`;
-  $("transcript").appendChild(row);
+  transcriptHost().appendChild(row);
   loadingRowEl = row;
-  row.scrollIntoView({ behavior: "smooth", block: "end" });
+  row.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function personaCards(agents) {
   if (!Array.isArray(agents) || !agents.length) {
     $("personas-list").innerHTML =
-      '<p class="muted" id="personas-empty-hint">Generate personas from topic above to display agents here.</p>';
+      '<p class="muted" id="personas-empty-hint">Generate stances and experiences from the topic to display agents here.</p>';
     return;
   }
   $("personas-list").innerHTML = agents.map((p) => {
@@ -285,8 +615,8 @@ function personaCards(agents) {
     return `
     <article class="persona-card">
       <h3>${escapeHtml(p.name)}${styleBit}</h3>
-      <div class="field"><span class="label">Initial view:&nbsp;</span>${escapeHtml(p.initial_view)}</div>
-      <div class="field"><span class="label">Personal story:&nbsp;</span>${escapeHtml(p.personal_story)}</div>
+      <div class="field"><span class="label">Stance</span>${escapeHtml(p.initial_view)}</div>
+      <div class="field"><span class="label">Personal story</span>${escapeHtml(p.personal_story)}</div>
     </article>`;
   }).join("");
 }
@@ -480,6 +810,7 @@ function renderTurnDisplay(entry) {
 }
 
 function formatMs(ms) {
+  if (typeof ms === "string") return ms;
   if (ms === undefined || ms === null) return "—";
   const n = Number(ms);
   if (Number.isNaN(n)) return "—";
@@ -662,7 +993,7 @@ function showUnitGap(row, unitIdx, gapMs) {
   if (!unitEl) return;
   const indicator = document.createElement("div");
   indicator.className = "unit-gap-indicator";
-  indicator.textContent = `⏸ ${gapMs}ms`;
+  indicator.textContent = `Within-turn pause: ${gapMs}ms`;
   unitEl.after(indicator);
 }
 
@@ -670,11 +1001,12 @@ function appendTurn(entry) {
   recordTurn(entry);
   const row = document.createElement("div");
   row.className = "turn";
+  row.dataset.turn = String(entry.turn);
   row.innerHTML =
     `<div class="meta">${renderTurnMeta(entry)}</div>` +
     `<div class="segmented-body">${renderTurnDisplay(entry)}</div>` +
     renderTimingsBlock(entry);
-  $("transcript").appendChild(row);
+  transcriptHost().appendChild(row);
   wireAudioButtons(row, entry);
   row.scrollIntoView({ behavior: "smooth", block: "end" });
   return row;
@@ -693,11 +1025,22 @@ async function seedTopicPlaceholderFromServer() {
   $("topic-input").placeholder = t
     ? "Enter a topic, or use Reset to default topic."
     : "Enter a discussion topic…";
+  const example = $("topic-example");
+  if (example && t.trim()) example.textContent = `Example: ${t.trim()}`;
+}
+
+let setupPersonasReady = false;
+
+function personasLookReady(agents) {
+  return Array.isArray(agents) && agents.length >= 2
+    && agents.every((a) => String(a.initial_view || "").trim() && String(a.personal_story || "").trim());
 }
 
 async function loadPersonas() {
   const doc = await api("/personas");
   personaCards(doc.agents);
+  setupPersonasReady = personasLookReady(doc.agents);
+  return doc;
 }
 
 let sessionId = null;
@@ -728,7 +1071,8 @@ function abortAudioPlayback() {
 }
 
 function setTtsToggleLocked(locked) {
-  $("tts-enabled").disabled = locked;
+  const el = document.getElementById("tts-enabled");
+  if (el) el.disabled = locked;
 }
 
 /** Backchannel playback volume (ElevenLabs has no per-request volume API). */
@@ -788,8 +1132,56 @@ async function playBackchannelAfterDelay(bc) {
   await playAudioBase64(bc.audio_base64, { volume: BACKCHANNEL_VOLUME });
 }
 
+/**
+ * Live playback context, created inside the Start click. Browsers block `audio.play()`
+ * once the click gesture has expired (turn 1 arrives seconds later), but a context
+ * resumed during the gesture keeps playing.
+ */
+let liveAudioCtx = null;
+
+function unlockLiveAudio() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  if (!liveAudioCtx) liveAudioCtx = new Ctx();
+  if (liveAudioCtx.state === "suspended") liveAudioCtx.resume().catch(() => {});
+  const silent = liveAudioCtx.createBufferSource();
+  silent.buffer = liveAudioCtx.createBuffer(1, 1, 22050);
+  silent.connect(liveAudioCtx.destination);
+  silent.start(0);
+}
+
+async function playAudioBase64ViaContext(b64, onPlayStart, volume) {
+  let buffer;
+  try {
+    buffer = await decodeAudioBase64Clip(liveAudioCtx, b64);
+  } catch (err) {
+    console.warn("[TTS] decode failed", err);
+    return;
+  }
+  if (audioPlayAborted) return;
+  await new Promise((resolve) => {
+    const src = liveAudioCtx.createBufferSource();
+    src.buffer = buffer;
+    const gain = liveAudioCtx.createGain();
+    gain.gain.value = Math.min(1, Math.max(0, volume));
+    src.connect(gain);
+    gain.connect(liveAudioCtx.destination);
+    const handle = { pause: () => { try { src.stop(); } catch (_) {} } };
+    activeAudios.add(handle);
+    src.onended = () => {
+      activeAudios.delete(handle);
+      resolve();
+    };
+    src.start();
+    if (onPlayStart) onPlayStart();
+  });
+}
+
 function playAudioBase64(b64, opts = {}) {
   const { onPlayStart = null, volume = 1.0 } = opts;
+  if (liveAudioCtx && !audioPlayAborted) {
+    return playAudioBase64ViaContext(b64, onPlayStart, volume);
+  }
   return new Promise((resolve) => {
     if (audioPlayAborted) {
       resolve();
@@ -811,7 +1203,10 @@ function playAudioBase64(b64, opts = {}) {
     audio.onplaying = firePlayStart;
     audio.onended = done;
     audio.onerror = done;
-    audio.play().then(firePlayStart).catch(done);
+    audio.play().then(firePlayStart).catch((err) => {
+      console.warn("[TTS] play() rejected", err);
+      done();
+    });
   });
 }
 
@@ -913,9 +1308,10 @@ function recordTurn(entry) {
 
 function updateSaveExportButton() {
   const enabled = sessionTurns.length > 0;
-  $("save-export-btn").disabled = !enabled;
-  $("save-clean-transcript-btn").disabled = !enabled;
-  $("save-audio-mp3-btn").disabled = !enabled;
+  for (const id of ["save-export-btn", "save-clean-transcript-btn", "save-audio-mp3-btn"]) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !enabled;
+  }
 }
 
 /** Spoken text from clean segments (after split, before disfluency). */
@@ -1054,7 +1450,7 @@ async function decodeAudioBase64Clip(decodeCtx, b64) {
 }
 
 /** Merge speaker unit clips + backchannels (same overlap timing as live playback). */
-async function concatTurnAudioClips(lines) {
+async function concatTurnAudioClips(lines, pauseAndGap = sessionPauseAndGapEnabled, fixedUnitGaps = null) {
   const segs = (lines || [])
     .filter((l) => l.kind === "segment" && l.audio_base64)
     .sort((a, b) => Number(a.segment_index) - Number(b.segment_index));
@@ -1078,9 +1474,15 @@ async function concatTurnAudioClips(lines) {
     }
 
     const segStarts = [];
+    const unitGaps = [];
     let cursor = 0;
     for (let i = 0; i < segBuffers.length; i++) {
-      if (i > 0) cursor += sessionPauseAndGapEnabled ? sampleUnitGapMs() / 1000 : 0;
+      if (i > 0 && pauseAndGap) {
+        const afterUnit = Number(segs[i - 1].segment_index);
+        const gapMs = fixedUnitGaps?.get(afterUnit) ?? sampleUnitGapMs();
+        unitGaps.push({ afterUnit, ms: gapMs });
+        cursor += gapMs / 1000;
+      }
       segStarts.push(cursor);
       cursor += segBuffers[i].duration;
     }
@@ -1134,17 +1536,19 @@ async function concatTurnAudioClips(lines) {
     const rendered = await offline.startRendering();
     const wav = audioBufferToWav(rendered);
 
-    if (mixEvents.length === 1 && !bcByUnit.size) {
+    if (mixEvents.length === 1 && !bcByUnit.size && !unitGaps.length) {
       const only = segs[0];
       return {
         src: `data:audio/mpeg;base64,${only.audio_base64}`,
         duration_s: Number(only.duration_s) || rendered.duration,
+        unitGaps,
       };
     }
 
     return {
       src: `data:audio/wav;base64,${uint8ToBase64(wav)}`,
       duration_s: Math.round(rendered.duration * 1000) / 1000,
+      unitGaps,
     };
   } finally {
     await decodeCtx.close();
@@ -1528,6 +1932,7 @@ async function refreshTurnTimingsFromStream(entry, row) {
 /** Play TTS units sequentially; backchannels overlap the next unit. */
 async function playTurnAudioStreaming(entry, row, nUnits) {
   audioPlayAborted = false;
+  const unitGaps = new Map();
   let gapRecorded = false;
   const onTurnFirstPlay = () => {
     if (gapRecorded || lastTurnAudioEndedAt == null) return;
@@ -1551,6 +1956,7 @@ async function playTurnAudioStreaming(entry, row, nUnits) {
 
     if (!audioPlayAborted && !stopChainRequested && sessionPauseAndGapEnabled) {
       const unitGap = sampleUnitGapMs();
+      unitGaps.set(ui - 1, unitGap);
       showUnitGap(row, ui - 1, unitGap);
       await sleepMs(unitGap);
     }
@@ -1588,6 +1994,7 @@ async function playTurnAudioStreaming(entry, row, nUnits) {
 
   await refreshTurnTimingsFromStream(entry, row);
   lastTurnAudioEndedAt = performance.now();
+  return { unitGaps };
 }
 
 /** Legacy: one clip per speaker segment (pre–whole-turn TTS). */
@@ -1717,147 +2124,444 @@ async function runRemainingTurnsAutomatically() {
   } else if (sessionId) disableConversation(false);
 }
 
+let confirmedTopic = "";
+let confirmedTurns = 6;
+let confirmedSignature = "";
+let runLock = false;
+let runningMode = null;
+let pendingKeyRedirect = false;
+
+function columnEls(mode) {
+  return document.querySelector(`.compare-col[data-mode="${mode}"]`);
+}
+
+function clearColumn(col) {
+  col.querySelectorAll("audio").forEach((audio) => {
+    audio.pause();
+    audio.removeAttribute("src");
+  });
+  col.querySelector(".transcript").innerHTML = "";
+  col.querySelector(".playback").innerHTML = "";
+}
+
+function setColumnControls() {
+  document.querySelectorAll(".compare-col").forEach((col) => {
+    const runningHere = runLock && col.dataset.mode === runningMode;
+    col.classList.toggle("is-running", runningHere);
+    col.classList.toggle("is-waiting", runLock && !runningHere);
+    col.querySelector(".col-start").disabled = runLock;
+    col.querySelector(".col-stop").disabled = !runningHere;
+  });
+  const back = $("back-to-setup-btn");
+  if (back) back.disabled = runLock;
+  $("change-keys-btn").disabled = runLock;
+}
+
+function showStep(step) {
+  $("stage-keys").hidden = step !== "keys";
+  $("stage-setup").hidden = step !== "topic";
+  $("stage-profiles").hidden = step !== "profiles";
+  $("stage-compare").hidden = step !== "compare";
+  $("change-keys-btn").hidden = step === "keys";
+}
+
+function isMissingKeyError(err) {
+  return /API key is missing|rejected this key|invalid.?api.?key|401/i.test(String(err?.message || err));
+}
+
+function reportError(err) {
+  const message = err?.message || String(err);
+  alert(message);
+  if (isMissingKeyError(err) && !runLock) showStep("keys");
+}
+
+function setupSignature() {
+  return JSON.stringify({
+    topic: $("topic-input").value.trim(),
+    turns: Number($("turn-count").value),
+    personas: $("personas-list").innerText,
+  });
+}
+
+async function waitUntilTurnAudioReady(entry, sid) {
+  const session = sid || sessionId;
+  if (!session || !entry?.turn) return entry;
+  const deadline = Date.now() + 180000;
+  while (Date.now() < deadline) {
+    const poll = await api(
+      `/turn_audio?session_id=${encodeURIComponent(session)}&turn=${entry.turn}`
+    );
+    mergeTurnAudioPollIntoEntry(entry, poll);
+    if (poll.complete) return entry;
+    await sleepMs(400);
+  }
+  return entry;
+}
+
+function columnTurnClips(playbackEl) {
+  const col = playbackEl.closest(".compare-col");
+  return col ? [...col.querySelectorAll(".transcript .turn-audio audio")] : [];
+}
+
+function ensurePlaybackShell(playbackEl, pauseAndGap) {
+  if (playbackEl.querySelector(".play-all-btn")) return;
+  playbackEl.dataset.pauseGaps = pauseAndGap ? "1" : "0";
+  const playAll = document.createElement("button");
+  playAll.type = "button";
+  playAll.className = "play-all-btn";
+  playAll.textContent = "Play all turns";
+  playAll.disabled = true;
+  playAll.onclick = async () => {
+    const clips = columnTurnClips(playbackEl);
+    if (!clips.length) return;
+    playAll.disabled = true;
+    try {
+      for (let i = 0; i < clips.length; i++) {
+        const audio = clips[i];
+        const gapBefore = Number(audio.dataset.gapBeforeMs || 0);
+        if (i > 0 && gapBefore > 0) await sleepMs(gapBefore);
+        audio.currentTime = 0;
+        await audio.play();
+        await new Promise((resolve) => {
+          audio.onended = resolve;
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    playAll.disabled = columnTurnClips(playbackEl).length === 0;
+  };
+  playbackEl.append(playAll);
+}
+
+/** Replay clip under a turn that already played live; reuses the pauses heard live. */
+async function attachTurnPlayback(playbackEl, row, entry, sid, pauseAndGap, live = {}) {
+  ensurePlaybackShell(playbackEl, pauseAndGap);
+  const item = document.createElement("div");
+  item.className = "turn-audio";
+  const label = document.createElement("div");
+  label.className = "audio-label";
+  label.textContent = "Preparing replay…";
+  item.appendChild(label);
+  const playAll = playbackEl.querySelector(".play-all-btn");
+  row.appendChild(item);
+  const ready = await waitUntilTurnAudioReady(entry, sid);
+  recordTurn(ready);
+  let clip = null;
+  try {
+    clip = await concatTurnAudioClips(ready.audio_lines || [], pauseAndGap, live.unitGaps || null);
+  } catch (err) {
+    console.error(err);
+  }
+  label.textContent = "Replay";
+  if (clip?.src) {
+    const gapBeforeMs = pauseAndGap ? Number(live.gapBeforeMs || 0) : 0;
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "auto";
+    audio.src = clip.src;
+    if (gapBeforeMs > 0) audio.dataset.gapBeforeMs = String(gapBeforeMs);
+    item.appendChild(audio);
+    if (playAll) playAll.disabled = false;
+  } else {
+    const miss = document.createElement("p");
+    miss.className = "muted";
+    miss.textContent = "Audio not available for this turn.";
+    item.appendChild(miss);
+  }
+}
+
+/**
+ * Show a turn's text, then play its audio to the end before the caller asks for the
+ * next turn. The server prefetches the next turn while this one plays.
+ */
+async function showAndPlayTurn(entry, maxTurns, status, pauseAndGap, gapBeforeMs, onPlayed) {
+  const row = appendTurn(entry);
+  if (pauseAndGap && gapBeforeMs > 0) showSpeechGap(row, gapBeforeMs);
+  status.textContent = `Turn ${entry.turn} of ${maxTurns} · playing`;
+  lastTurnAudioEndedAt = null;
+  const result = (await playTurnAudio(entry, row)) || {};
+  onPlayed(row, entry, { unitGaps: result.unitGaps, gapBeforeMs });
+}
+
+async function runColumnTurns(maxTurns, status, pauseAndGap, onPlayed) {
+  while (sessionId && !stopChainRequested) {
+    let gapBeforeMs = 0;
+    if (pauseAndGap) {
+      gapBeforeMs = sampleInterTurnGapMs();
+      await sleepMs(gapBeforeMs);
+      if (stopChainRequested) return true;
+    }
+    appendLoadingRow("Generating next turn…");
+    status.textContent = "Waiting for the next turn…";
+    let res;
+    try {
+      res = await api("/next_turn", { session_id: sessionId });
+    } catch (err) {
+      removeLoadingRow();
+      if (stopChainRequested) return true;
+      throw err;
+    }
+    removeLoadingRow();
+    if (stopChainRequested) return true;
+    if (res.turn) {
+      await showAndPlayTurn(res.turn, maxTurns, status, pauseAndGap, gapBeforeMs, onPlayed);
+    }
+    if (stopChainRequested) return true;
+    if (res.done) return false;
+  }
+  return Boolean(stopChainRequested);
+}
+
+async function startColumn(mode) {
+  if (runLock) return;
+  unlockLiveAudio();
+  const col = columnEls(mode);
+  if (!col) return;
+  runLock = true;
+  runningMode = mode;
+  stopChainRequested = false;
+  clearColumn(col);
+  const status = col.querySelector(".col-status");
+  const playback = col.querySelector(".playback");
+  activeTranscriptEl = col.querySelector(".transcript");
+  sessionId = null;
+  sessionTurns = [];
+  sessionExportMeta = null;
+  sessionTtsEnabled = true;
+  status.textContent = "Starting…";
+  setColumnControls();
+  let stopped = false;
+  const audioJobs = [];
+  const pauseAndGap = mode === "exp";
+  sessionPauseAndGapEnabled = pauseAndGap;
+  audioPlayAborted = false;
+  const onPlayed = (row, entry, live) => {
+    if (sessionId && entry) audioJobs.push(attachTurnPlayback(playback, row, entry, sessionId, pauseAndGap, live));
+  };
+  try {
+    appendLoadingRow("Generating turn 1…");
+    const payload = await api("/start", {
+      tts_enabled: true,
+      topic_override: confirmedTopic,
+      max_turns: confirmedTurns,
+      mode,
+    });
+    removeLoadingRow();
+    sessionId = payload.session_id;
+    sessionDebugEnabled = Boolean(payload.debug_setting);
+    document.body.classList.toggle("debug-hidden", !sessionDebugEnabled);
+    sessionExportMeta = {
+      session_id: payload.session_id,
+      discussion_topic: payload.discussion_topic,
+      max_turns: payload.max_turns,
+      tts_enabled: true,
+    };
+    if (stopChainRequested) {
+      stopped = true;
+      await api("/cancel", { session_id: sessionId }).catch(() => {});
+    } else {
+      await showAndPlayTurn(payload.turn, payload.max_turns, status, pauseAndGap, 0, onPlayed);
+      stopped = stopChainRequested
+        ? true
+        : await runColumnTurns(payload.max_turns, status, pauseAndGap, onPlayed);
+    }
+  } catch (err) {
+    removeLoadingRow();
+    stopped = true;
+    if (sessionId) await api("/cancel", { session_id: sessionId }).catch(() => {});
+    if (!stopChainRequested) alert(err.message || String(err));
+    if (isMissingKeyError(err)) pendingKeyRedirect = true;
+  }
+  removeLoadingRow();
+  status.textContent = audioJobs.length ? "Preparing playback…" : status.textContent;
+  try {
+    await Promise.all(audioJobs);
+  } catch (err) {
+    console.error(err);
+  }
+  status.textContent = stopped
+    ? "Stopped. Playback is for completed turns. Start runs from the beginning."
+    : "Finished. Use playback below. Start runs from the beginning.";
+  runLock = false;
+  runningMode = null;
+  stopChainRequested = false;
+  activeTranscriptEl = null;
+  setColumnControls();
+  if (pendingKeyRedirect) {
+    pendingKeyRedirect = false;
+    showStep("keys");
+  }
+}
+
+function stopRunningColumn() {
+  if (!runLock || !runningMode) return;
+  stopChainRequested = true;
+  const col = columnEls(runningMode);
+  if (col) {
+    col.querySelector(".col-stop").disabled = true;
+    col.querySelector(".col-status").textContent = "Stopping…";
+  }
+  abortAudioPlayback();
+  if (sessionId) api("/cancel", { session_id: sessionId }).catch(() => {});
+}
+
+function syncGenerateButton() {
+  $("generate-personas-btn").disabled = !$("topic-input").value.trim();
+}
+
+$("topic-input").addEventListener("input", syncGenerateButton);
+
 document.getElementById("reload-default-topic-btn").onclick = async () => {
   await fetchDefaultTopic();
   $("topic-input").value = defaultTopicFromServer;
+  syncGenerateButton();
 };
 
 document.getElementById("generate-personas-btn").onclick = async () => {
   const btn = $("generate-personas-btn");
   const status = $("generate-personas-status");
+  const topic = $("topic-input").value.trim();
+  if (!topic) {
+    status.textContent = "Enter a topic to continue.";
+    syncGenerateButton();
+    return;
+  }
   btn.disabled = true;
   status.textContent = "";
   try {
-    let topic = $("topic-input").value.trim();
-    if (!topic) {
-      await fetchDefaultTopic();
-      topic = defaultTopicFromServer.trim();
-    }
-    if (!topic) throw new Error("No topic — enter one above or fix server default in prompts.");
-    status.textContent = "Generating personas…";
-    const result = await api("/generate-personas-from-topic", { topic });
+    status.textContent = "Generating agent profiles… this usually takes a few seconds.";
+    await api("/generate-personas-from-topic", { topic });
     await loadPersonas();
-    status.textContent = result.fixed
-      ? "Using fixed personas from agent_personas.json (use_fixed_personas = True)."
-      : "Saved to data/agent_personas.json.";
+    if (!setupPersonasReady) throw new Error("Profiles were not generated.");
+    status.textContent = "";
+    showStep("profiles");
+  } catch (e) {
+    status.textContent = "";
+    reportError(e);
+  }
+  syncGenerateButton();
+};
+
+document.getElementById("confirm-setup-btn").onclick = async () => {
+  if (!setupPersonasReady) {
+    alert("Generate stances and experiences before continuing.");
+    return;
+  }
+  const topic = $("topic-input").value.trim();
+  if (!topic) {
+    alert("Enter a topic first.");
+    showStep("topic");
+    return;
+  }
+  const turns = Number($("turn-count").value);
+  if (!Number.isInteger(turns) || turns < 1 || turns > 40) {
+    alert("Turns must be a whole number from 1 to 40.");
+    return;
+  }
+  const signature = setupSignature();
+  if (signature !== confirmedSignature) {
+    document.querySelectorAll(".compare-col").forEach((col) => {
+      clearColumn(col);
+      col.querySelector(".col-status").textContent = "";
+    });
+    confirmedSignature = signature;
+  }
+  confirmedTopic = topic;
+  confirmedTurns = turns;
+  $("compare-topic-line").textContent = `${turns} turn${turns === 1 ? "" : "s"} · ${topic}`;
+  $("shared-personas").innerHTML = $("personas-list").innerHTML;
+  showStep("compare");
+};
+
+document.getElementById("back-to-topic-btn").onclick = () => {
+  showStep("topic");
+};
+
+document.getElementById("back-to-setup-btn").onclick = () => {
+  if (runLock) return;
+  showStep("profiles");
+};
+
+document.querySelector(".compare-grid").addEventListener("click", (event) => {
+  const col = event.target.closest(".compare-col");
+  if (!col) return;
+  if (event.target.closest(".col-start")) startColumn(col.dataset.mode);
+  if (event.target.closest(".col-stop")) stopRunningColumn();
+});
+
+function setKeyError(name, message) {
+  $(`${name}-key-error`).textContent = message || "";
+  $(`${name}-key-input`).classList.toggle("invalid", Boolean(message));
+}
+
+document.querySelectorAll(".reveal-btn").forEach((btn) => {
+  btn.onclick = () => {
+    const input = $(btn.dataset.target);
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.textContent = show ? "Hide" : "Show";
+  };
+});
+
+$("keys-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const keys = {
+    openai: $("openai-key-input").value.trim(),
+    elevenlabs: $("elevenlabs-key-input").value.trim(),
+  };
+  setKeyError("openai", keys.openai ? "" : "Enter your OpenAI API key.");
+  setKeyError("elevenlabs", keys.elevenlabs ? "" : "Enter your ElevenLabs API key.");
+  if (!keys.openai || !keys.elevenlabs) return;
+
+  const btn = $("save-keys-btn");
+  const status = $("keys-status");
+  btn.disabled = true;
+  status.textContent = "Checking keys…";
+  try {
+    const res = await api("/validate-keys", {}, {
+      "X-OpenAI-Key": keys.openai,
+      "X-ElevenLabs-Key": keys.elevenlabs,
+    });
+    setKeyError("openai", res.openai?.ok ? "" : res.openai?.error);
+    setKeyError("elevenlabs", res.elevenlabs?.ok ? "" : res.elevenlabs?.error);
+    if (!res.ok) {
+      status.textContent = "";
+      return;
+    }
+    storeKeys(keys, $("remember-keys").checked);
+    status.textContent = "";
+    showStep("topic");
   } catch (e) {
     status.textContent = "";
     alert(e.message);
+  } finally {
+    btn.disabled = false;
   }
-  btn.disabled = false;
+});
+
+$("use-server-keys-btn").onclick = () => {
+  storeKeys({ openai: "", elevenlabs: "" }, false);
+  showStep("topic");
 };
 
-document.getElementById("start-btn").onclick = async () => {
-  $("start-btn").disabled = true;
-  $("next-btn").disabled = true;
-  $("auto-btn").disabled = true;
-  $("stop-chain-btn").disabled = true;
-  stopChainRequested = false;
-  abortAudioPlayback();
-  $("transcript").innerHTML = "";
-  removeLoadingRow();
-  sessionId = null;
-  sessionExportMeta = null;
-  sessionTurns = [];
-  updateSaveExportButton();
-  $("save-export-status").textContent = "";
-  sessionTtsEnabled = $("tts-enabled").checked;
-  setTtsToggleLocked(true);
-  $("session-line").textContent = "";
-  try {
-    appendLoadingRow(sessionTtsEnabled ? "Generating turn 1 (with TTS)…" : "Generating turn 1…");
-    const payload = await api("/start", startRequestBody());
-    removeLoadingRow();
-    sessionId = payload.session_id;
-    sessionTtsEnabled = Boolean(payload.tts_enabled);
-    sessionDebugEnabled = Boolean(payload.debug_setting);
-    document.body.classList.toggle("debug-hidden", !sessionDebugEnabled);
-    sessionPauseAndGapEnabled = Boolean(payload.use_pause_and_gap);
-    sessionExportMeta = {
-      session_id: payload.session_id,
-      discussion_topic: payload.discussion_topic,
-      max_turns: payload.max_turns,
-      tts_enabled: payload.tts_enabled,
-    };
-    sessionTurns = [];
-    personaCards(payload.personas.agents);
-    updateSessionLine(payload);
-    const firstRow = appendTurn(payload.turn);
-    await playTurnAudio(payload.turn, firstRow);
-    if (sessionTtsEnabled && !audioPlayAborted && sessionPauseAndGapEnabled) {
-      await sleepMs(sampleInterTurnGapMs());
-    }
-
-    if ($("auto-advance").checked) {
-      $("next-btn").disabled = true;
-      $("auto-btn").disabled = true;
-      await runRemainingTurnsAutomatically();
-  } else {
-      disableConversation(false);
-    }
-  } catch (e) {
-    removeLoadingRow();
-    alert(e.message);
-    sessionId = null;
-    setTtsToggleLocked(false);
-    disableConversation(true);
-  }
-  $("start-btn").disabled = false;
-  if (!sessionId) setTtsToggleLocked(false);
-};
-
-document.getElementById("stop-chain-btn").onclick = () => {
-  stopChainRequested = true;
-  abortAudioPlayback();
-  $("stop-chain-btn").disabled = true;
-};
-
-document.getElementById("next-btn").onclick = async () => {
-  if (!sessionId) return;
-  $("next-btn").disabled = true;
-  $("auto-btn").disabled = true;
-  $("stop-chain-btn").disabled = true;
-  try {
-    appendLoadingRow("Awaiting model for next speaker…");
-    const res = await api("/next_turn", { session_id: sessionId });
-    removeLoadingRow();
-    if (res.turn) {
-      const row = appendTurn(res.turn);
-      await playTurnAudio(res.turn, row);
-    }
-    if (res.done) {
-      disableConversation(true);
-      setTtsToggleLocked(false);
-    } else {
-      disableConversation(false);
-    }
-  } catch (e) {
-    removeLoadingRow();
-    alert(e.message);
-    disableConversation(false);
-  }
-};
-
-document.getElementById("auto-btn").onclick = async () => {
-  if (!sessionId) return;
-  $("auto-btn").disabled = true;
-  $("next-btn").disabled = true;
-  await runRemainingTurnsAutomatically();
-};
-
-document.getElementById("save-export-btn").onclick = async () => {
-  await saveConversationExport();
-};
-
-document.getElementById("save-clean-transcript-btn").onclick = () => {
-  saveCleanTranscriptExport();
-};
-
-document.getElementById("save-audio-mp3-btn").onclick = async () => {
-  await saveFullAudioMp3();
+$("change-keys-btn").onclick = () => {
+  if (runLock) return;
+  $("openai-key-input").value = apiKeys.openai;
+  $("elevenlabs-key-input").value = apiKeys.elevenlabs;
+  showStep("keys");
 };
 
 (async () => {
+  const remembered = loadStoredKeys();
+  $("openai-key-input").value = apiKeys.openai;
+  $("elevenlabs-key-input").value = apiKeys.elevenlabs;
+  $("remember-keys").checked = remembered;
+  showStep(apiKeys.openai && apiKeys.elevenlabs ? "topic" : "keys");
+  try {
+    const cfg = await api("/key-config");
+    $("use-server-keys-btn").hidden = !(cfg.server_has_openai_key && cfg.server_has_elevenlabs_key);
+  } catch (_) {}
   try {
     await seedTopicPlaceholderFromServer();
   } catch (e) {
